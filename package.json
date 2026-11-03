@@ -1,0 +1,14 @@
+{
+  "name": "gh-contrib",
+  "version": "0.1.0",
+  "description": "Find popular GitHub repos, scan them for good issues, fix with an AI draft, and open the PR as yourself",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test.js"
+  },
+  "devDependencies": {
+    "electron": "^43.1.1"
+  },
+  "license": "MIT"
+}

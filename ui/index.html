@@ -1,0 +1,453 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>GH Contrib</title>
+<style>
+:root{--bg:#090909;--panel:#0d0d0d;--line:#1c1c1c;--ink:#e6e6e6;--dim:#8a8a8a;--acc:#8ec6ff;--ok:#3fb27f}
+*{box-sizing:border-box}body{margin:0;height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font:13px system-ui}
+#tabs{display:flex;gap:4px;padding:4px 8px;border-bottom:1px solid var(--line);font-size:12px}
+#tabs span{padding:4px 12px;border-radius:8px;color:var(--dim);cursor:pointer}#tabs .on{background:#161616;color:var(--ink)}
+#hdr{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line)}
+.logo{background:var(--acc);color:#06121f;border-radius:6px;width:20px;height:20px;display:grid;place-items:center;font-weight:800;font-size:11px}
+#hdr b{font-size:13px}#crumb{font-family:ui-monospace,monospace;color:var(--dim);font-size:12px}#chip{display:inline-flex;gap:6px;align-items:center;margin-left:auto;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:11px;color:var(--acc)}
+#body{flex:1;display:flex;gap:12px;padding:12px;min-height:0}
+#nav{width:300px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:auto;flex:none}
+#nav .top{padding:16px;border-bottom:1px solid var(--line)}#nav h2{margin:0 0 8px;font-size:16px}
+.tag{display:inline-block;border:1px solid #3a3a5a;background:#1b1830;color:#b9b0ff;border-radius:6px;padding:2px 8px;font-size:11px;margin:0 4px 4px 0}
+.sec{font-size:10px;color:#666;letter-spacing:.08em;padding:14px 18px 6px}
+.item{display:flex;align-items:center;gap:10px;margin:0 8px;padding:9px 12px;border-radius:8px;cursor:pointer;color:#d0d0d0}
+.item:hover{background:#151515}.item.on{background:var(--acc);color:#06121f;font-weight:600}
+#main{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:auto;padding:18px;min-width:0}
+#main>div{display:none}#main>div.on{display:block}#main>#p-web.on{display:flex;margin:-18px;height:calc(100% + 36px)}#main>#p-web webview{flex:1}
+h3{margin:0 0 10px;font-size:13px}.card{background:#111;border:1px solid var(--line);border-radius:10px;padding:12px;margin:0 0 10px}
+button{background:var(--acc);color:#06121f;border:0;border-radius:999px;padding:6px 14px;font-weight:600;cursor:pointer}
+button.g{background:#161616;color:var(--ink);border:1px solid var(--line)}button:disabled{opacity:.4}
+input,textarea{width:100%;background:#0a0a0a;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px;font:inherit;margin:4px 0}
+textarea{min-height:110px}pre{white-space:pre-wrap;max-height:300px;overflow:auto;font:11px ui-monospace,monospace;color:var(--dim);background:#0a0a0a;border:1px solid var(--line);border-radius:8px;padding:10px}
+a{color:var(--acc)}.d{color:var(--dim)}.w{color:#ffb86b}.e{color:#ff8a8a}
+
+#main{background:radial-gradient(900px 380px at 85% -10%,rgba(142,198,255,.10),transparent 60%),radial-gradient(600px 300px at 0% 0%,rgba(150,120,255,.07),transparent 60%),var(--panel)}
+.card{background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));border-color:rgba(255,255,255,.09);border-top-color:rgba(255,255,255,.2);border-radius:16px;backdrop-filter:blur(18px)}
+.bar{display:flex;gap:8px;align-items:center;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-top-color:rgba(255,255,255,.22);border-radius:999px;padding:5px 5px 5px 16px;margin:0 0 18px;backdrop-filter:blur(18px)}
+.bar input{flex:1;background:none;border:0;margin:0;font-size:14px;outline:none}.bar button{padding:8px 18px}
+.hero{display:flex;align-items:baseline;gap:12px;margin:0 0 14px}.hero h1{margin:0;font-size:26px;letter-spacing:-.02em}.hero .d{font-size:13px}
+.stats{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 12px;font-size:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1)}
+.pill.ok{color:#7be0b0;background:rgba(63,178,127,.12);border-color:rgba(63,178,127,.3)}.pill.warn{color:#ffc27a;background:rgba(255,184,107,.1);border-color:rgba(255,184,107,.3)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+.issue{display:flex;flex-direction:column;gap:10px;margin:0;transition:transform .15s,border-color .15s}.issue:hover{transform:translateY(-2px);border-color:rgba(142,198,255,.45)}
+.issue .num{font:600 12px ui-monospace,monospace;color:var(--acc);text-decoration:none;background:rgba(142,198,255,.12);border-radius:999px;padding:3px 10px;align-self:flex-start}
+.issue .t{font-size:14px;font-weight:600;line-height:1.35;flex:1}
+.issue .meta{display:flex;gap:6px;flex-wrap:wrap;color:var(--dim);font-size:11px}.issue .meta span{background:rgba(255,255,255,.05);border-radius:999px;padding:3px 9px}
+.issue .row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.empty{text-align:center;color:var(--dim);padding:40px 0}
+button{transition:filter .15s}button:hover:not(:disabled){filter:brightness(1.12)}
+
+.forge-h{display:flex;align-items:baseline;gap:12px;margin:0 0 12px}.forge-h b{font-size:16px}.mono{font-family:ui-monospace,monospace;color:var(--acc)}.forge-h .d{margin-left:auto;font-family:ui-monospace,monospace;font-size:12px}
+.segs{display:flex;gap:4px;margin:0 0 14px}.segs i{flex:1;height:3px;border-radius:3px;background:#222}.segs i.done{background:var(--ok)}.segs i.run{background:var(--acc);animation:pulse 1.2s infinite}.segs i.fail{background:#ff6b6b}
+@keyframes pulse{50%{opacity:.35}}
+.forge{display:flex;gap:0;border:1px solid var(--line);border-radius:16px;overflow:hidden;min-height:440px;background:rgba(0,0,0,.25)}
+.steps{width:250px;border-right:1px solid var(--line);padding:10px;flex:none}
+.st{display:flex;gap:12px;padding:10px;border-radius:10px;align-items:center}.st.run{background:rgba(255,255,255,.05)}
+.dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;border:1px solid #333;color:#777;flex:none}
+.st.done .dot{border-color:var(--ok);color:var(--ok);background:rgba(63,178,127,.12)}.st.run .dot{border:2px solid var(--acc);border-top-color:transparent;animation:spin 1s linear infinite}.st.fail .dot{border-color:#ff6b6b;color:#ff6b6b}
+@keyframes spin{to{transform:rotate(360deg)}}
+.st b{font-size:12px;display:block}.st small{color:var(--dim);font-size:11px}.st.done small{color:var(--ok)}.st.pend{opacity:.5}
+.pane{flex:1;padding:16px;min-width:0;overflow:auto}.pane h3{display:flex;gap:10px;align-items:baseline}
+.logbox{max-height:none;min-height:340px;font-size:12px;line-height:1.7}.logbox:empty:before{content:'Waiting…'}
+details summary{cursor:pointer;color:var(--dim);margin:10px 0 6px}
+
+.badge{margin-left:auto;background:rgba(255,255,255,.1);border-radius:999px;padding:1px 8px;font-size:11px}.item.on .badge{background:rgba(0,0,0,.15)}
+.item .x{margin-left:auto;opacity:0;padding:0 4px}.item:hover .x{opacity:.6}.item .x:hover{opacity:1}.item small{margin-left:auto;color:var(--ok);font-size:10px}
+.sec .plus{float:right;cursor:pointer;color:var(--acc);font-size:15px;line-height:10px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.tile{cursor:pointer;margin:0;transition:transform .15s,border-color .15s}.tile:hover{transform:translateY(-2px);border-color:rgba(142,198,255,.45)}
+.tile .top{display:flex;align-items:center;gap:8px;margin-bottom:8px}.tile .nm{font-weight:600;font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile .ln{font:11px ui-monospace,monospace;color:var(--dim);height:30px;overflow:hidden;margin:8px 0 0}
+.tile .segs{margin:0}.tile .tm{font:11px ui-monospace,monospace;color:var(--dim)}
+.chip{border-radius:999px;padding:2px 9px;font-size:10px;font-weight:600;border:1px solid}
+.c-queued{color:#aaa;border-color:#555;background:rgba(150,150,150,.1)}.c-running{color:var(--acc);border-color:rgba(142,198,255,.5);background:rgba(142,198,255,.1)}
+.c-review{color:#ffd27a;border-color:rgba(255,210,122,.5);background:rgba(255,210,122,.1)}.c-done{color:#7be0b0;border-color:rgba(63,178,127,.5);background:rgba(63,178,127,.12)}
+.c-stopped{color:#c9a0ff;border-color:rgba(201,160,255,.5);background:rgba(201,160,255,.1)}.c-failed{color:#ff8a8a;border-color:rgba(255,107,107,.5);background:rgba(255,107,107,.1)}
+.back{cursor:pointer;color:var(--dim);margin-right:6px}.back:hover{color:var(--ink)}.mx{width:60px!important;display:inline-block;margin:0 0 0 6px!important;padding:3px 6px!important}
+
+svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
+.item i,.pill i,.meta i{display:inline-flex}.item i svg{width:17px;height:17px;opacity:.85}.pill svg.i,.meta svg.i{width:13px;height:13px}
+.logo svg.i{width:13px;height:13px;stroke-width:2.4}.plus svg.i{width:15px;height:15px}.item .x svg.i{width:13px;height:13px}
+.fhero{margin:0 0 18px}.fhero h1{margin:0 0 4px;font-size:28px;letter-spacing:-.025em}.fhero p{margin:0;color:var(--dim);font-size:13px}
+.filters{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.frow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.frow label{font-size:11px;color:var(--dim);width:64px;letter-spacing:.04em;text-transform:uppercase}
+.chipb{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 13px;font-size:12px;cursor:pointer;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#ccc;user-select:none;transition:all .15s}
+.chipb:hover{border-color:rgba(142,198,255,.4)}.chipb.on{background:rgba(142,198,255,.16);border-color:rgba(142,198,255,.6);color:var(--acc)}
+.ldot{width:9px;height:9px;border-radius:50%;display:inline-block;background:var(--c,#888)}
+.fgo{margin-left:auto;display:inline-flex;align-items:center;gap:7px;padding:8px 18px}
+.res-h{display:flex;align-items:center;gap:10px;margin:18px 0 10px;color:var(--dim);font-size:12px}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+.repo{display:flex;flex-direction:column;gap:11px;margin:0;transition:transform .15s,border-color .15s}.repo:hover{transform:translateY(-2px);border-color:rgba(142,198,255,.45)}
+.rtop{display:flex;gap:11px;align-items:center}.av{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;font-weight:700;font-size:15px;color:#06121f;background:linear-gradient(135deg,var(--a),var(--b));flex:none}
+.rn{min-width:0}.rn small{display:block;color:var(--dim);font-size:11px}.rn b{font-size:14px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd{color:#b5b5b5;font-size:12.5px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:38px}
+.rs{display:flex;gap:6px;flex-wrap:wrap}.rs .pill{padding:3px 10px;font-size:11px}
+.ract{display:flex;gap:8px;margin-top:auto}.ract button{display:inline-flex;align-items:center;gap:6px}
+.skel{height:168px;border-radius:16px;background:linear-gradient(90deg,rgba(255,255,255,.03),rgba(255,255,255,.07),rgba(255,255,255,.03));background-size:200% 100%;animation:sh 1.3s infinite;border:1px solid var(--line)}
+@keyframes sh{to{background-position:-200% 0}}
+.seg{display:flex;gap:8px;margin:0 0 14px}.trepo{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--acc);min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trepo svg.i{width:13px;height:13px}
+.ideas{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px}.idea h4{margin:0;font-size:14px;flex:1}.idea p{margin:0;color:#b5b5b5;font-size:12.5px;line-height:1.5}.idea .k{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+.clean .forge-h,.clean .segs,.clean .steps{display:none}.clean .forge{border:0;background:none;min-height:0;display:block;overflow:visible}.clean .pane{padding:0;overflow:visible}
+.tile .tx{opacity:0;cursor:pointer;color:var(--dim);display:inline-flex}.tile:hover .tx{opacity:.7}.tile .tx:hover{opacity:1;color:#ff8a8a}.tile .tx svg.i{width:13px;height:13px}
+.c-paused{color:#ffb86b;border-color:rgba(255,184,107,.5);background:rgba(255,184,107,.1)}.tile .tx.run{opacity:.85;color:#ffb86b}.tile .tx.run:hover{color:#ff8a8a}
+.stopbar{display:flex;gap:8px;margin:0 0 10px}
+</style>
+<div id="tabs"><span class="on">Dashboard</span><span id="tw">GitHub</span></div>
+<div id="hdr"><span class="logo" data-ic="git-branch"></span><b>gh-contrib</b><span id="crumb">› pick a repo</span><span id="chip">not signed in</span></div>
+<div id="body">
+  <div id="nav">
+    <div class="top"><h2>GH Contrib</h2><div class="d">Open many repos, run many fixes in parallel, ship PRs as yourself.</div></div>
+    <div class="sec">ACCOUNT</div><div class="item on" data-p="acct"><i data-ic="user"></i>Account</div>
+    <div class="sec">EXPLORE</div><div class="item" data-p="find"><i data-ic="compass"></i>Find repos</div>
+    <div class="sec">OPEN REPOS <span class="plus" id="addrepo" title="Open another repo" data-ic="plus"></span></div><div id="repolist"></div>
+    <div class="sec">WORK</div><div class="item" data-p="forge"><i data-ic="flame"></i>Forge <span class="badge" id="fbadge">0</span></div><div class="item" data-p="web"><i data-ic="github"></i>GitHub</div>
+  </div>
+  <div id="main">
+    <div id="p-acct" class="on"><h3>Account</h3><div class="card" id="acct">…</div></div>
+    <div id="p-find"><div class="fhero"><h1>Find repos</h1><p>Popular projects worth contributing to. Repos whose docs mention AI are hidden.</p></div>
+      <div class="card filters">
+        <div class="frow"><label>Language</label><span id="langchips"></span></div>
+        <div class="frow"><label>Min stars</label><span id="starchips"></span>
+          <button class="fgo" id="sug"><span data-ic="search"></span>Find repos</button></div>
+      </div>
+      <div class="res-h" id="reshead"></div><div class="rgrid" id="repos"></div></div>
+    <div id="p-repo"><div class="hero"><h1>Repos</h1><span class="d">Open as many as you like. Each keeps its own scan.</span></div>
+      <div class="bar"><input id="repo" placeholder="owner/name, e.g. laravel/framework"><button class="g" id="idea">Ideas</button><button id="scan">Scan issues</button></div>
+      <div id="rerr" class="e"></div><div id="scanout"></div></div>
+    <div id="p-forge"><div id="board"><div class="hero"><h1>Forge</h1><span class="d">Runs go in parallel; the rest queue. <label>Parallel <input class="mx" id="max" type="number" min="1" max="8"></label></span></div><div class="stats" id="fchips"></div><div id="tiles"></div></div><div id="jobviews"></div></div>
+    <div id="p-web"><webview id="wv" src="https://github.com" partition="persist:github"></webview></div>
+  </div>
+</div>
+<script>
+const $ = (s) => document.querySelector(s), esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+let me, S, active = null, jid = 0, fRepo = null, CACHE = {}; const R = {}, J = [], JOBS = {};
+const WORK_STEPS = ['Forking repo', 'Cloning', 'Branch & identity', 'Reading the issue', 'Reading docs & validating', 'AI fixing', 'Writing unit tests', 'Review & PR'];
+const IDEA_STEPS = ['Repo & issues', 'Cloning for reading', 'Reading docs & code', 'Ideas ready'];
+const STEPSOF = (j) => j.kind === 'ideas' ? IDEA_STEPS : WORK_STEPS;
+const CHIP = { paused: 'Stopped', queued: 'Queued', running: 'Running', review: 'Ready', done: 'PR opened', stopped: 'Skipped', failed: 'Failed' };
+const IC = {
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  compass: '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/>',
+  'git-branch': '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  github: '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>', x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  issues: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/>',
+  message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', check: '<path d="M20 6 9 17l-5-5"/>',
+  back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>', sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+  ext: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+};
+const ic = (n) => `<svg class="i" viewBox="0 0 24 24">${IC[n]}</svg>`;
+const paintIcons = (root = document) => root.querySelectorAll('[data-ic]').forEach(e => { e.innerHTML = ic(e.dataset.ic); e.removeAttribute('data-ic'); });
+const LANGCOL = { PHP: '#8892bf', JavaScript: '#f1e05a', TypeScript: '#3178c6', Python: '#3572a5', Go: '#00add8', Rust: '#dea584', Java: '#b07219', Ruby: '#cc342d', 'C#': '#178600', 'C++': '#f34b7d', Kotlin: '#a97bff', Swift: '#f05138' };
+const LANGS = ['PHP', 'JavaScript', 'TypeScript', 'Python', 'Go', 'Rust', 'Java', 'Ruby', 'C#'];
+const STARS = [[1000, '1k+'], [5000, '5k+'], [10000, '10k+'], [50000, '50k+'], [100000, '100k+']];
+const agoT = (t) => { const m = (Date.now() - new Date(t)) / 6e4; if (m < 60) return Math.max(1, Math.floor(m)) + 'm ago'; if (m < 1440) return Math.floor(m / 60) + 'h ago'; const d = Math.floor(m / 1440); return d < 31 ? d + 'd ago' : d < 365 ? Math.floor(d / 30) + 'mo ago' : (d / 365).toFixed(1) + 'y ago'; };
+const PH_ISSUES = (r) => `<div class="empty">Click <b>Scan issues</b> to look for work in ${esc(r)}.</div>`;
+const PH_IDEAS = '<div class="empty">Click <b>Ideas</b> and the AI will read the project and propose contributions.</div>';
+const kfmt = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(n);
+const hue = (str) => { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+const msg = (e) => String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+const busy = (b, t) => { b.disabled = true; b.dataset.t = b.textContent; b.textContent = t; return () => { b.disabled = false; b.textContent = b.dataset.t; }; };
+const mmss = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+
+// ---------- navigation ----------
+const show = (p) => {
+  document.querySelectorAll('#main>div').forEach(d => d.classList.toggle('on', d.id === 'p-' + p));
+  document.querySelectorAll('.item[data-p]').forEach(i => i.classList.toggle('on', i.dataset.p === p));
+  document.querySelectorAll('.ritem').forEach(i => i.classList.toggle('on', p === 'repo' && i.dataset.r === active));
+  $('#tw').classList.toggle('on', p === 'web');
+  if (p === 'forge') showBoard();
+};
+document.querySelectorAll('.item[data-p]').forEach(i => i.onclick = () => show(i.dataset.p)); $('#tw').onclick = () => show('web');
+const go = (u) => { $('#wv').loadURL(u); show('web'); };
+$('#addrepo').onclick = () => { active = null; $('#repo').value = ''; $('#crumb').textContent = '› open a repo'; Object.values(R).forEach(r => r.el.style.display = 'none'); show('repo'); $('#repo').focus(); };
+
+// ---------- account ----------
+async function account() {
+  try { me = await gc.account(); $('#chip').innerHTML = ic('github') + esc(me.login); $('#acct').innerHTML = `Signed in as <b>${esc(me.login)}</b> ${esc(me.name || '')} <button class="g" id="sw">Switch / login</button><pre>${esc(me.status)}</pre>`; }
+  catch (e) { $('#acct').innerHTML = `Not signed in. <button id="sw">Login with GitHub</button>`; }
+  $('#sw').onclick = () => { gc.login(); $('#acct').insertAdjacentHTML('beforeend', '<div class="d">Finish in the terminal, then <a href="#" id="rf">refresh</a>.</div>'); $('#rf').onclick = () => account(); };
+}
+(async () => {
+  S = await gc.settingsGet(); CACHE = await gc.cacheGet(); restoreJobs(await gc.jobsGet()); S.max = S.max || 3; $('#max').value = S.max; paintIcons(); S.languages = S.languages.length ? S.languages : ['PHP', 'JavaScript']; drawFilters(); account();
+  (S.repos || (S.repo ? [S.repo] : [])).forEach(r => { try { openRepo(r, false, true); } catch {} });
+  if (active) show('acct');
+  renderBoard();
+})();
+$('#max').onchange = () => { S.max = Math.max(1, Math.min(8, +$('#max').value || 3)); $('#max').value = S.max; gc.settingsSet(S); pump(); };
+
+// ---------- repos: many open at once, each with its own scan ----------
+const normRepo = (v) => { const r = String(v || '').trim().replace(/^.*github\.com\//, '').replace(/\.git$/, '').replace(/^\/|\/$/g, '').split('/').slice(0, 2).join('/'); if (!/^[\w.-]+\/[\w.-]+$/.test(r)) throw new Error('Enter a repo as owner/name, e.g. laravel/framework (or pick one in Find repos).'); return r; };
+function renderRepoList() {
+  $('#repolist').innerHTML = Object.keys(R).map(r => { const n = J.filter(j => j.repo === r && (j.status === 'running' || j.status === 'queued')).length;
+    return `<div class="item ritem ${r === active ? 'on' : ''}" data-r="${esc(r)}"><i>${ic('git-branch')}</i>${esc(r)}${n ? `<small>${n} running</small>` : ''}<span class="x" data-x="${esc(r)}" title="Close">${ic('x')}</span></div>`; }).join('') || '<div class="d" style="padding:4px 20px;font-size:11px">none yet</div>';
+  document.querySelectorAll('.ritem').forEach(i => i.onclick = (e) => { if (e.target.dataset.x) return closeRepo(e.target.dataset.x); activateRepo(i.dataset.r); });
+}
+function openRepo(repo, scanNow, quiet) {
+  repo = normRepo(repo);
+  if (!R[repo]) {
+    const el = document.createElement('div'); el.style.display = 'none';
+    el.innerHTML = `<div class="seg"><span class="chipb on" data-t="issues">${ic('issues')}Issues</span><span class="chipb" data-t="ideas">${ic('sparkles')}Ideas</span><button class="g clr" style="margin-left:auto;padding:4px 12px" title="Forget the saved results of this tab">${ic('x')} Clear</button></div>
+      <div class="sc">${PH_ISSUES(repo)}</div><div class="idv" style="display:none">${PH_IDEAS}</div>`;
+    $('#scanout').append(el); R[repo] = { el, sc: el.querySelector('.sc'), idv: el.querySelector('.idv') };
+    el.querySelectorAll('[data-t]').forEach(c => c.onclick = () => setTab(repo, c.dataset.t));
+    el.querySelector('.clr').onclick = () => {
+      const r = R[repo], issues = (r.tab || 'issues') === 'issues';
+      gc.cacheSet({ repo, key: issues ? 'scan' : 'ideas', value: null });
+      if (CACHE[repo]) delete CACHE[repo][issues ? 'scan' : 'ideas'];
+      if (issues) r.sc.innerHTML = PH_ISSUES(repo); else { r.idv.innerHTML = PH_IDEAS; r.ideas = null; }
+    };
+    const c = CACHE[repo]; if (c?.scan) doScan(repo, c.scan); if (c?.ideas) restoreIdeas(repo, c.ideas);
+    S.repos = [...new Set([...(S.repos || []), repo])]; gc.settingsSet(S);
+  }
+  if (!quiet || !active) { if (quiet) { active = repo; Object.values(R).forEach(r => r.el.style.display = 'none'); R[repo].el.style.display = 'block'; renderRepoList(); } else activateRepo(repo); }
+  else renderRepoList();
+  if (scanNow) doScan(repo);
+}
+function setTab(repo, t) {
+  const r = R[repo]; r.tab = t; r.sc.style.display = t === 'issues' ? 'block' : 'none'; r.idv.style.display = t === 'ideas' ? 'block' : 'none';
+  r.el.querySelectorAll('[data-t]').forEach(c => c.classList.toggle('on', c.dataset.t === t));
+}
+function restoreIdeas(repo, c) {
+  const r = R[repo], j = { id: 'j' + (++jid), kind: 'ideas', repo, steps: IDEA_STEPS.map(() => ({ status: 'done' })), log: c.log || '', status: 'review', t0: c.at, t1: c.at, result: c.result, name: `${repo} · ideas` };
+  j.view = document.createElement('div'); r.idv.innerHTML = ''; r.idv.append(j.view); JOBS[j.id] = j; r.ideas = j; renderJobView(j);
+}
+function runIdeas(repo) { // stays on the repo page; only an implementation is sent to Forge
+  const r = R[repo]; if (r.ideas?.status === 'running') return setTab(repo, 'ideas');
+  const j = { id: 'j' + (++jid), kind: 'ideas', repo, steps: [], log: '', status: 'queued', t0: 0, t1: 0, name: `${repo} · ideas` };
+  j.view = document.createElement('div'); r.idv.innerHTML = ''; r.idv.append(j.view); JOBS[j.id] = j; r.ideas = j;
+  setTab(repo, 'ideas'); renderJobView(j); run(j);
+}
+function activateRepo(repo) {
+  active = repo; $('#repo').value = repo; $('#crumb').textContent = '› ' + repo; $('#rerr').textContent = '';
+  for (const k in R) R[k].el.style.display = k === repo ? 'block' : 'none';
+  renderRepoList(); show('repo');
+}
+function closeRepo(repo) {
+  R[repo].el.remove(); delete R[repo]; S.repos = (S.repos || []).filter(r => r !== repo); gc.settingsSet(S);
+  if (active === repo) { active = null; const n = Object.keys(R)[0]; if (n) activateRepo(n); else { $('#repo').value = ''; $('#crumb').textContent = '› pick a repo'; } }
+  renderRepoList();
+}
+const topErr = (fn) => async () => { try { $('#rerr').textContent = ''; await fn(); } catch (e) { $('#rerr').textContent = msg(e); } };
+
+function drawFilters() {
+  $('#langchips').innerHTML = LANGS.map(l => `<span class="chipb ${S.languages.includes(l) ? 'on' : ''}" data-l="${l}"><i class="ldot" style="--c:${LANGCOL[l] || '#888'}"></i>${l}</span>`).join(' ');
+  $('#starchips').innerHTML = STARS.map(([n, t]) => `<span class="chipb ${S.minStars === n ? 'on' : ''}" data-s="${n}">${ic('star')}${t}</span>`).join(' ');
+  document.querySelectorAll('[data-l]').forEach(c => c.onclick = () => { const l = c.dataset.l; S.languages = S.languages.includes(l) ? S.languages.filter(x => x !== l) : [...S.languages, l]; gc.settingsSet(S); drawFilters(); });
+  document.querySelectorAll('[data-s]').forEach(c => c.onclick = () => { S.minStars = +c.dataset.s; gc.settingsSet(S); drawFilters(); });
+}
+$('#sug').onclick = async () => {
+  const out = $('#repos'), head = $('#reshead');
+  if (!S.languages.length) { head.innerHTML = '<span class="e">Pick at least one language.</span>'; return; }
+  out.innerHTML = '<div class="skel"></div>'.repeat(6); head.textContent = 'Searching GitHub and reading each repo’s contribution docs…';
+  const btn = $('#sug'); btn.disabled = true;
+  try {
+    const r = await gc.suggest({ languages: S.languages, minStars: S.minStars });
+    const opened = (n) => !!R[n];
+    head.innerHTML = `<b style="color:var(--ink)">${r.ok.length} repos</b>` + (r.hidden.length ? `<span class="pill warn" title="${esc(r.hidden.join(', '))}">${ic('alert')}${r.hidden.length} hidden, docs mention AI</span>` : '');
+    out.innerHTML = r.ok.map(x => { const [o, n] = x.fullName.split('/'), h = hue(x.fullName);
+      return `<div class="card repo"><div class="rtop"><div class="av" style="--a:hsl(${h} 80% 72%);--b:hsl(${(h + 50) % 360} 80% 62%)">${esc(n[0].toUpperCase())}</div><div class="rn"><small>${esc(o)}</small><b>${esc(n)}</b></div></div>
+        <div class="rd">${esc(x.description || 'No description')}</div>
+        <div class="rs"><span class="pill">${ic('star')}${kfmt(x.stargazersCount)}</span><span class="pill">${ic('issues')}${kfmt(x.openIssuesCount)} open</span>${x.language ? `<span class="pill"><i class="ldot" style="--c:${LANGCOL[x.language] || '#888'}"></i>${esc(x.language)}</span>` : ''}</div>
+        <div class="ract"><button data-r="${esc(x.fullName)}" class="${opened(x.fullName) ? 'g' : ''}">${opened(x.fullName) ? ic('check') + 'Opened' : ic('git-branch') + 'Open repo'}</button><button class="g" data-g="${esc(x.url)}">${ic('ext')}GitHub</button></div></div>`; }).join('')
+      || '<div class="empty" style="grid-column:1/-1">Nothing matched. Try fewer stars or more languages.</div>';
+    out.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { openRepo(b.dataset.r, true); b.className = 'g'; b.innerHTML = ic('check') + 'Opened'; });
+    out.querySelectorAll('[data-g]').forEach(b => b.onclick = () => go(b.dataset.g));
+  } catch (e) { out.innerHTML = ''; head.innerHTML = `<span class="e">${esc(msg(e))}</span>`; }
+  btn.disabled = false;
+};
+
+$('#scan').onclick = topErr(async () => { const r = normRepo($('#repo').value); openRepo(r, false); await doScan(r); });
+$('#idea').onclick = topErr(async () => { const r = normRepo($('#repo').value); openRepo(r, false); runIdeas(r); });
+
+async function doScan(repo, cached) {
+  const el = R[repo]?.sc; if (!el) return;
+  if (!cached) { setTab(repo, 'issues'); el.innerHTML = '<div class="empty">Scanning…</div>'; }
+  try {
+    const r = cached ? cached.data : await gc.scan(repo), at = cached ? cached.at : Date.now();
+    if (!cached) { gc.cacheSet({ repo, key: 'scan', value: { data: r, at } }); (CACHE[repo] ||= {}).scan = { data: r, at }; }
+    const ago = agoT;
+    el.innerHTML = `<div class="stats"><span class="pill ok">${r.issues.length} free issues</span><span class="pill" title="Saved until you rescan or clear">${ic('clock')}scanned ${ago(at)}</span>`
+      + (r.policy.length ? `<span class="pill warn">${ic('alert')}AI policy: ${esc(r.policy.join(', '))}. Read first, don't submit AI-assisted work unless allowed</span>` : '')
+      + (r.claimFirst ? '<span class="pill warn">Comment to get assigned before starting</span>' : '')
+      + (r.hasSecurity ? `<span class="pill">${ic('shield')}SECURITY.md found</span>` : '<span class="pill">No SECURITY.md</span>') + '</div>'
+      + (r.issues.length ? `<div class="grid">${r.issues.map(i => `<div class="card issue"><a class="num" href="#" data-u="${i.url}">#${i.number}</a><div class="t">${esc(i.title)}</div>
+        <div class="meta"><span>${esc(i.label)}</span><span>${ic('message')} ${i.comments.length}</span><span>${ic('clock')} ${ago(i.createdAt)}</span></div>
+        <div class="row"><button class="g" data-u="${i.url}">View</button><button data-n="${i.number}" data-t="${esc(i.title)}" ${r.policy.length ? 'disabled' : ''}>Work on it</button></div></div>`).join('')}</div>`
+        : '<div class="empty">No free, PR-less good-first / help-wanted issues.</div>');
+    el.querySelectorAll('[data-u]').forEach(a => a.onclick = (e) => { e.preventDefault(); go(a.dataset.u); });
+    el.querySelectorAll('[data-n]').forEach(b => b.onclick = () => {
+      const n = +b.dataset.n, ex = J.find(j => j.repo === repo && j.number === n && !['failed', 'stopped', 'paused'].includes(j.status));
+      if (ex) return sentBtn(b, ex);
+      sentBtn(b, addJob({ kind: 'fix', repo, number: n, title: b.dataset.t }));
+    });
+  } catch (e) { el.innerHTML = `<div class="e">${esc(msg(e))}</div>`; }
+}
+
+// ---------- Forge: parallel runs, queue, board of tiles ----------
+const sentBtn = (b, j) => { b.className = 'g'; b.innerHTML = ic('flame') + 'In Forge'; b.onclick = () => openJob(j); };
+function addJob(o) {
+  const j = { id: 'j' + (++jid), steps: [], log: '', status: 'queued', t0: 0, t1: 0, ...o };
+  j.name = j.number ? `${j.repo} #${j.number}` : `${j.repo} · idea`; JOBS[j.id] = j;
+  j.view = document.createElement('div'); j.view.className = 'jobview'; j.view.style.display = 'none'; $('#jobviews').append(j.view);
+  J.unshift(j); renderJobView(j); pump(); renderRepoList(); return j; // stays where you are; the Forge badge counts it
+}
+let saveT;
+const saveJobs = () => { clearTimeout(saveT); saveT = setTimeout(() => gc.jobsSet(J.map(j => ({
+  id: j.id, kind: j.kind, repo: j.repo, number: j.number, title: j.title, idea: j.idea, name: j.name, steps: j.steps, log: (j.log || '').slice(-30000),
+  status: j.status, err: j.err, t0: j.t0, t1: j.t1, prUrl: j.prUrl, ck: j.ck, force: j.force,
+  cur: j.cur && { dir: j.cur.dir, branch: j.cur.branch, def: j.cur.def, direct: j.cur.direct, issue: j.cur.issue, verdict: j.cur.verdict, tests: j.cur.tests, stopped: j.cur.stopped } }))), 800); };
+function restoreJobs(list) {
+  jid = Math.max(jid, ...list.map(o => +String(o.id).slice(1) || 0));
+  for (const o of list) {
+    const j = { ...o, log: o.log || '', steps: o.steps || [] };
+    if (j.status === 'running' || j.status === 'queued') { // the app was closed mid-run
+      const i = j.steps.findIndex(s => s?.status === 'run'); if (i >= 0) j.steps[i] = { status: 'fail', detail: 'interrupted' };
+      j.status = 'paused'; j.err = 'The app was closed while this was running.'; j.t1 = j.t1 || Date.now();
+    }
+    j.view = document.createElement('div'); j.view.className = 'jobview'; j.view.style.display = 'none'; $('#jobviews').append(j.view);
+    JOBS[j.id] = j; J.push(j); renderJobView(j);
+  }
+  renderBoard(); renderRepoList();
+}
+function stopJob(j) {
+  if (j.status === 'queued') { j.status = 'paused'; j.err = 'Stopped before it started.'; renderPane(j); paint(j); renderBoard(); saveJobs(); return; }
+  gc.stop(j.id); // kills the running AI process; the run ends at the stage it reached
+}
+function resumeJob(j) { // continue at the stage it reached; finished stages are kept
+  j.steps = j.steps.map(s => s && (s.status === 'fail' || s.status === 'run') ? undefined : s);
+  Object.assign(j, { status: 'queued', err: '', t1: 0 }); j.log += '\n--- resumed ---\n';
+  renderPane(j); paint(j); pump();
+}
+function restartJob(j) { Object.assign(j, { status: 'queued', steps: [], log: '', err: '', ck: null, cur: null }); renderPane(j); paint(j); pump(); }
+function pump() { // start queued runs (oldest first) while under the parallel limit
+  for (const j of J.slice().reverse()) if (j.status === 'queued' && J.filter(x => x.status === 'running').length < (S.max || 3)) run(j);
+  renderBoard(); renderRepoList(); saveJobs();
+}
+async function run(j) {
+  j.status = 'running'; j.t0 = Date.now(); j.t1 = 0; renderPane(j); paint(j); renderBoard();
+  try {
+    if (j.kind === 'ideas') { j.result = await gc.ideas({ repo: j.repo, job: j.id }); j.status = 'review'; const c = { result: j.result, log: j.log.slice(-20000), at: Date.now() }; gc.cacheSet({ repo: j.repo, key: 'ideas', value: c }); (CACHE[j.repo] ||= {}).ideas = c; }
+    else { j.cur = await gc.prepare({ repo: j.repo, number: j.number, idea: j.idea, user: me, force: j.force, job: j.id, ck: j.ck }); j.status = j.cur.stopped ? 'stopped' : 'review'; }
+  } catch (e) { j.err = msg(e); j.status = /Stopped by you/.test(j.err) ? 'paused' : 'failed'; if (j.status === 'paused') j.err = 'You stopped this run.'; }
+  j.t1 = Date.now(); renderPane(j); paint(j); pump();
+}
+function renderBoard() {
+  $('#fbadge').textContent = J.filter(j => j.status === 'running' || j.status === 'queued').length;
+  if (fRepo && !J.some(j => j.repo === fRepo)) fRepo = null;
+  const repos = [...new Set(J.map(j => j.repo))], L = J.filter(j => !fRepo || j.repo === fRepo);
+  $('#fchips').innerHTML = repos.length > 1 || fRepo ? `<span class="chipb ${fRepo ? '' : 'on'}" data-f="">All <b>${J.length}</b></span>` + repos.map(r => `<span class="chipb ${fRepo === r ? 'on' : ''}" data-f="${esc(r)}">${ic('git-branch')}${esc(r)} <b>${J.filter(j => j.repo === r).length}</b></span>`).join('') : '';
+  document.querySelectorAll('[data-f]').forEach(c => c.onclick = () => { fRepo = c.dataset.f || null; renderBoard(); });
+  $('#tiles').innerHTML = L.length ? `<div class="tiles">${L.map(j => { const ST = STEPSOF(j), q = J.filter(x => x.status === 'queued').reverse().indexOf(j);
+    return `<div class="card tile" data-j="${j.id}"><div class="top"><span class="trepo">${ic('git-branch')}${esc(j.repo)}</span><span class="chip c-${j.status}">${j.status === 'queued' ? (q + 1) + ' in line' : CHIP[j.status]}</span>${j.status === 'running' || j.status === 'queued' ? `<span class="tx run" data-stop="${j.id}" title="Stop">${ic('stop')}</span>` : `<span class="tx" data-rm="${j.id}" title="Remove from Forge">${ic('x')}</span>`}</div>
+      <div style="font-size:13px;font-weight:600;line-height:1.35;height:36px;overflow:hidden">${esc((j.number ? '#' + j.number + ' ' : '') + (j.title || ''))}</div>
+      <div class="segs">${ST.map((n, i) => `<i class="${j.steps[i]?.status || ''}"></i>`).join('')}</div>
+      <div class="ln">${esc(j.status === 'running' ? (j.last || '') : j.status === 'failed' ? j.err : j.status === 'stopped' ? (j.cur?.verdict?.reason || '') : '')}</div>
+      <div class="tm">${j.t0 ? mmss((j.t1 || Date.now()) - j.t0) : 'waiting'}</div></div>`; }).join('')}</div>`
+    : '<div class="empty">Nothing running. Open a repo, scan it, then send issues here with <b>Work on it</b>. Several can run at once.</div>';
+  document.querySelectorAll('[data-stop]').forEach(b => b.onclick = (e) => { e.stopPropagation(); stopJob(JOBS[b.dataset.stop]); });
+  document.querySelectorAll('[data-rm]').forEach(b => b.onclick = (e) => {
+    e.stopPropagation(); const j = JOBS[b.dataset.rm];
+    if (!confirm('Remove this run from Forge? Its branch and files stay in ~/contrib.')) return;
+    j.view.remove(); delete JOBS[j.id]; J.splice(J.indexOf(j), 1); saveJobs(); renderBoard(); renderRepoList();
+  });
+  document.querySelectorAll('.tile').forEach(t => t.onclick = () => openJob(J.find(j => j.id === t.dataset.j)));
+}
+function showBoard() { $('#board').style.display = 'block'; J.forEach(j => j.view.style.display = 'none'); renderBoard(); }
+function openJob(j) { show('forge'); $('#board').style.display = 'none'; J.forEach(x => x.view.style.display = x === j ? 'block' : 'none'); paint(j); }
+setInterval(() => { Object.values(JOBS).forEach(j => j.status === 'running' && paint(j)); if ($('#p-forge').classList.contains('on') && $('#board').style.display !== 'none') renderBoard(); }, 1000);
+
+function renderJobView(j) {
+  j.view.innerHTML = `<div class="forge-h">${j.kind === 'ideas' ? '' : `<span class="back">${ic('back')} Forge</span>`}<b><span class="mono">${esc(j.name)}</span></b><span class="d cnt"></span></div>
+    <div class="segs"></div><div class="forge"><div class="steps"></div><div class="pane"></div></div>`;
+  const bk = j.view.querySelector('.back'); if (bk) bk.onclick = showBoard; paint(j); renderPane(j);
+}
+function paint(j) {
+  const ST = STEPSOF(j), q = (s) => j.view.querySelector(s); if (!q('.steps')) return;
+  q('.steps').innerHTML = ST.map((n, i) => { const st = j.steps[i]; return `<div class="st ${st?.status || 'pend'}"><span class="dot">${st?.status === 'done' ? ic('check') : st?.status === 'fail' ? ic('x') : st?.status === 'run' ? '' : i + 1}</span><div><b>${n}</b><small>${esc(st?.detail || '')}</small></div></div>`; }).join('');
+  q('.segs').innerHTML = ST.map((n, i) => `<i class="${j.steps[i]?.status || ''}"></i>`).join('');
+  q('.cnt').textContent = `${j.steps.filter(x => x?.status === 'done').length}/${ST.length} steps · ${j.t0 ? mmss((j.t1 || Date.now()) - j.t0) : 'queued'}`;
+}
+ev.onCkpt(({ job, ck }) => { const j = JOBS[job]; if (j) { j.ck = ck; saveJobs(); } });
+ev.onStep(({ job, i, status, detail }) => { const j = JOBS[job]; if (!j) return; j.steps[i] = { status, detail: detail || j.steps[i]?.detail }; paint(j); saveJobs(); });
+ev.onLog(({ job, t }) => { const j = JOBS[job]; if (!j) return; j.log += t; saveJobs(); j.last = t.trim().split('\n').pop(); const l = j.view.querySelector('.log'); if (l) { l.textContent = j.log; l.scrollTop = l.scrollHeight; } });
+
+function renderPane(j) {
+  const p = j.view.querySelector('.pane'); if (!p) return;
+  j.view.classList.toggle('clean', j.kind === 'ideas' && j.status === 'review'); // finished ideas: drop the step list, show only the results
+  const logPane = (extra = '') => { p.innerHTML = `<h3>Log <span class="d">${j.status === 'running' ? 'live' : j.status}</span></h3>${extra}<pre class="logbox log"></pre>`; p.querySelector('.log').textContent = j.log || ''; };
+  if (j.status === 'queued' || j.status === 'running') {
+    logPane(`<div class="stopbar"><button class="g stop">${ic('stop')} Stop</button></div>`);
+    return p.querySelector('.stop').onclick = (e) => { e.target.disabled = true; e.target.textContent = 'Stopping…'; stopJob(j); };
+  }
+  if (j.status === 'failed' || j.status === 'paused') {
+    const ST = STEPSOF(j), at = ST.find((n, i) => j.steps[i]?.status !== 'done');
+    if (j.kind === 'ideas') { logPane(`<div class="${j.status === 'failed' ? 'e' : 'w'}">${esc(j.err)}</div><div class="stopbar"><button class="again">${ic('play')} Run again</button></div>`); return p.querySelector('.again').onclick = () => runIdeas(j.repo); }
+    logPane(`<div class="${j.status === 'failed' ? 'e' : 'w'}">${esc(j.err)}</div><div class="stopbar"><button class="resume">${ic('play')} Resume${at ? ` from "${esc(at)}"` : ''}</button><button class="g restart">Start over</button></div>`);
+    p.querySelector('.resume').onclick = () => resumeJob(j);
+    return p.querySelector('.restart').onclick = () => { if (confirm('Start over? Finished steps and the edits so far are discarded.')) restartJob(j); };
+  }
+  if (j.status === 'stopped') {
+    const v = j.cur.verdict;
+    p.innerHTML = `<h3>Not worth fixing <span class="d">${esc(v.verdict)}</span></h3><div class="card"><b>${esc(v.reason)}</b><p class="d">${esc(v.plan || '')}</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details><button class="g force">Work on it anyway</button>`;
+    return p.querySelector('.force').onclick = () => { Object.assign(j, { status: 'queued', steps: j.steps.slice(0, 4), force: true, err: '' }); renderPane(j); paint(j); pump(); };
+  }
+  if (j.kind === 'ideas') {
+    let items = null; try { items = JSON.parse(j.result.slice(j.result.indexOf('['), j.result.lastIndexOf(']') + 1)); } catch {}
+    const rk = { low: 'ok', medium: 'warn', high: 'warn' };
+    const sec = (k, v) => v ? `<div><div class="k">${k}</div><p>${esc(v)}</p></div>` : '';
+    p.innerHTML = `<div class="res-h" style="margin-top:0"><b style="color:var(--ink)">${items ? items.length + ' ideas' : 'Ideas'}</b><span>${esc(j.repo)} · generated ${agoT(j.t1 || Date.now())}</span><button class="g rr" style="margin-left:auto">${ic('sparkles')} Re-run</button></div>`
+      + (items ? `<div class="ideas">${items.map((x, n) => `<div class="card idea"><div class="top" style="display:flex;gap:8px;align-items:center"><h4>${esc(x.title)}</h4>${x.security ? `<span class="pill warn">${ic('shield')}security</span>` : ''}</div>
+        <div class="rs">${x.kind ? `<span class="pill">${esc(x.kind)}</span>` : ''}${x.risk ? `<span class="pill ${rk[x.risk] || ''}">${esc(x.risk)} risk</span>` : ''}${x.effort ? `<span class="pill">${ic('clock')}${esc(x.effort)}</span>` : ''}</div>
+        ${sec('Pitch', x.pitch || x.why)}${x.security ? '' : sec('Evidence', x.evidence) + sec('Approach', x.change) + sec('Impact', x.impact)}
+        ${!x.security && (x.risk === 'high' || x.effort === 'weeks') ? `<div class="w" style="font-size:12px">${ic('alert')} Big change: open a discussion with the maintainers first, unsolicited large PRs are usually closed.</div>` : ''}
+        <div class="ract">${x.security ? `<button class="g adv">${ic('shield')}Report privately</button><span class="d" style="font-size:11px">never filed publicly</span>` : `<button data-i="${n}">${ic('flame')}Implement in Forge</button>`}</div></div>`).join('')}</div>` : `<pre style="max-height:none">${esc(j.result)}</pre>`)
+      + `<details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
+    p.querySelector('.rr').onclick = () => runIdeas(j.repo);
+    p.querySelectorAll('.adv').forEach(b => b.onclick = () => gc.open({ url: `https://github.com/${j.repo}/security/advisories/new` }));
+    p.querySelectorAll('[data-i]').forEach(b => b.onclick = () => { const x = items[+b.dataset.i];
+      const ex = J.find(q => q.repo === j.repo && q.idea?.title === x.title && !['failed', 'stopped', 'paused'].includes(q.status));
+      sentBtn(b, ex || addJob({ kind: 'fix', repo: j.repo, title: x.title, idea: { title: x.title, body: `${x.pitch || x.why}\n\nEvidence: ${x.evidence || ''}\n\nApproach: ${x.change}\n\nImpact: ${x.impact || ''}` } })); });
+    return;
+  }
+  renderReview(j);
+}
+async function renderReview(j) {
+  const p = j.view.querySelector('.pane'), c = j.cur, q = (s) => p.querySelector(s);
+  let d; try { d = await gc.diff(c.dir); } catch (e) {
+    p.innerHTML = `<div class="e">The working folder is gone (${esc(c.dir)}).</div><button class="retry">Start over</button>`;
+    return p.querySelector('.retry').onclick = () => { restartJob(j); };
+  }
+  const tfiles = [...d.matchAll(/^diff --git a\/(\S+)/gm)].map(m => m[1]).filter(f => /(^|\/)(tests?|spec|__tests__)\/|[._-](test|spec)\.|Test\.(php|java|cs)$/i.test(f));
+  p.innerHTML = `<h3>Review <span class="d">${esc(c.branch)} · ${esc(c.dir)}</span></h3><div class="stats">${tfiles.length ? `<span class="pill ok">${ic('check')}${tfiles.length} test file(s): ${esc(tfiles.map(f => f.split('/').pop()).join(', '))}</span>` : `<span class="pill warn">${ic('alert')}No test files in this diff</span>`}</div><pre>${esc(d || '(no changes)')}</pre>
+    <div class="bar"><input class="tc" placeholder="test command, e.g. composer test" value="${esc(S.testCmd || '')}"><button class="g rt">Run tests</button><button class="g rd">Refresh</button><button class="dr">Draft PR text</button></div>
+    <pre class="to" style="display:none"></pre><div class="pr"></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
+  const fail = (el, e) => el.innerHTML = `<div class="e">${esc(msg(e))}</div>`;
+  q('.rd').onclick = () => renderReview(j);
+  q('.rt').onclick = async () => { S.testCmd = q('.tc').value; gc.settingsSet(S); const x = busy(q('.rt'), 'Running…'); q('.to').style.display = 'block'; q('.to').textContent = await gc.test({ dir: c.dir, cmd: S.testCmd }); x(); };
+  q('.dr').onclick = async () => { try {
+    const x = busy(q('.dr'), 'Drafting…'); let pr; try { pr = await gc.draft({ dir: c.dir, number: j.number, issue: c.issue, tests: tfiles, testCmd: q('.tc').value }); } finally { x(); }
+    q('.pr').innerHTML = `<h3>Pull request <span class="d">edit freely</span></h3><input class="pt" value="${esc(pr.title)}"><textarea class="pb" style="min-height:340px">${esc(pr.body)}</textarea><button class="ship">Commit as ${esc(me.login)} &amp; open PR</button><div class="res"></div>`;
+    q('.ship').onclick = async () => { try {
+      if (!tfiles.length && !confirm('This change has NO unit tests. Maintainers usually expect them. Open the PR anyway?')) return;
+      if (!confirm(`Push ${c.branch} to ${c.direct ? j.repo + ' (direct, you have write access)' : 'your fork'} and open a PR to ${j.repo} as ${me.login}?`)) return;
+      const url = await gc.ship({ repo: j.repo, dir: c.dir, branch: c.branch, def: c.def, direct: c.direct, title: q('.pt').value, body: q('.pb').value, user: me });
+      j.status = 'done'; j.steps[7] = { status: 'done', detail: 'PR opened' }; j.prUrl = url; paint(j); renderBoard(); saveJobs();
+      q('.res').innerHTML = `Opened: <a href="#" class="pu">${esc(url)}</a>`; q('.pu').onclick = (e) => { e.preventDefault(); go(url); };
+    } catch (e) { fail(q('.res'), e); } };
+  } catch (e) { fail(q('.pr'), e); } };
+}
+</script>
