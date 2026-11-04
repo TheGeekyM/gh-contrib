@@ -13,7 +13,8 @@ const run = (cmd, args, opts = {}) => new Promise((res, rej) =>
 const gh = (...a) => run('gh', a, { cwd: os.homedir() }); // not the app dir: root-owned, git there says 'dubious ownership'
 const git = (dir, ...a) => run('git', a, { cwd: dir });
 const locks = {};
-const withLock = (k, fn) => { const p = (locks[k] || Promise.resolve()).then(fn); locks[k] = p.catch(() => {}); return p; };
+const pendingLock = {};
+const withLock = (k, fn, onWait) => { if (pendingLock[k] > 0) onWait?.(); pendingLock[k] = (pendingLock[k] || 0) + 1; const p = (locks[k] || Promise.resolve()).then(fn); locks[k] = p.catch(() => {}).then(() => { pendingLock[k]--; }); return p; };
 const dirOf = (repo) => path.join(WORK, repo.replace('/', '__'));
 
 // ---- brain: logged-in `claude` CLI. Read-only mode for ideas/drafts; edit mode (files only, no Bash => cannot commit) for fixes ----
@@ -60,6 +61,33 @@ function claude(prompt, { cwd = os.tmpdir(), edit = false, read = false, onLog =
 // shared by triage, ideas and fixing: understand the project before judging or touching it
 const DOCS_RULE = `FIRST, understand the project properly. Use your tools to find and carefully read: every README*, CONTRIBUTING*, ARCHITECTURE*, docs/doc/documentation folders (all .md/.rst), UPGRADE/CHANGELOG notes, and the test setup. If the README links to official documentation (for a framework like Laravel, its docs site), WebFetch the pages relevant to the area you are about to touch. Learn the project's purpose, conventions, public API and what maintainers accept. Only then continue. Say briefly what you learned.\n\n`;
 
+
+// ---- cloning big repos safely: blobless (history without file contents, files fetched on demand), atomic, killable, with progress ----
+function gitLogged(args, { cwd, log, job }) {
+  return new Promise((res, rej) => {
+    const p = spawn('git', args, { cwd }); let err = '', last = 0;
+    if (job) (procs[job] ||= new Set()).add(p);
+    p.stderr.on('data', d => { // git progress uses \r; show the latest line at most every 3s
+      const t = String(d); err = (err + t).slice(-4000);
+      const line = t.split(/[\r\n]+/).filter(Boolean).pop();
+      if (line && Date.now() - last > 3000) { last = Date.now(); log(line.slice(0, 200)); }
+    });
+    p.on('error', rej);
+    p.on('close', c => { procs[job]?.delete(p); aborted.has(job) ? rej(new Error('Stopped by you')) : c ? rej(new Error(err.trim().split(/[\r\n]+/).pop() || `git exited ${c}`)) : res(); });
+  });
+}
+async function ensureBase({ base, url, log, job }) {
+  const ok = fs.existsSync(base) && await git(base, 'rev-parse', '--verify', 'HEAD').then(() => true).catch(() => false);
+  if (ok) return log('Shared clone already exists, reusing it.');
+  // a folder without commits is a broken or half-finished clone: start clean. Clone into .partial and rename, so "exists" always means "complete".
+  fs.rmSync(base, { recursive: true, force: true });
+  const tmp = base + '.partial'; fs.rmSync(tmp, { recursive: true, force: true });
+  log('Cloning without file contents first (shared by all issues of this repo). Big repos take a few minutes…');
+  await gitLogged(['clone', '--filter=blob:none', '--no-tags', '--progress', url, tmp], { log, job });
+  fs.renameSync(tmp, base);
+}
+app.on('before-quit', () => { for (const set of Object.values(procs)) for (const p of set) { try { p.kill(); } catch {} } }); // no orphaned git/claude/test processes
+
 ipcMain.handle('stop', (e, job) => { aborted.add(job); for (const p of procs[job] || []) p.kill(); return true; });
 
 // ---- account ----
@@ -90,7 +118,8 @@ ipcMain.handle('suggest', async (e, { languages, minStars = 5000 }) => {
     out.push(...r);
   }
   const flagged = await Promise.all(out.map(async r => ({ ...r, policy: policyOf(await docs(r.fullName)) })));
-  return { ok: flagged.filter(r => !r.policy.length), hidden: flagged.filter(r => r.policy.length).map(r => r.fullName) };
+  const closed = new Set((await Promise.all(flagged.filter(r => !r.policy.length).map(async r => (await access(r.fullName)).blocked ? r.fullName : null))).filter(Boolean));
+  return { ok: flagged.filter(r => !r.policy.length && !closed.has(r.fullName)), hidden: flagged.filter(r => r.policy.length || closed.has(r.fullName)).map(r => r.fullName) };
 });
 
 // ---- scan: unassigned good-first / help-wanted issues with no open PR mentioning them ----
@@ -128,8 +157,11 @@ ipcMain.handle('ideas', async (e, { repo, job }) => {
     ]);
     step(0, 'done', `${JSON.parse(issues).length} open issues listed`);
     step(i = 1, 'run'); const dir = path.join(WORK, '_read', repo.replace('/', '__'));
-    if (!fs.existsSync(dir)) { log('Shallow clone for reading…'); fs.mkdirSync(path.dirname(dir), { recursive: true }); await run('git', ['clone', '--depth', '1', `https://github.com/${repo}.git`, dir]); }
-    else { log('Updating existing read-only clone…'); await git(dir, 'pull', '--ff-only').catch(() => {}); }
+    const okDir = fs.existsSync(dir) && await git(dir, 'rev-parse', '--verify', 'HEAD').then(() => true).catch(() => false);
+    if (!okDir) { // atomic: clone to .partial, then rename, so a stopped run never leaves a broken folder behind
+      log('Shallow clone for reading…'); fs.mkdirSync(path.dirname(dir), { recursive: true }); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(dir + '.partial', { recursive: true, force: true });
+      await gitLogged(['clone', '--depth', '1', '--no-tags', '--progress', `https://github.com/${repo}.git`, dir + '.partial'], { log, job }); fs.renameSync(dir + '.partial', dir);
+    } else { log('Updating existing read-only clone…'); await git(dir, 'pull', '--ff-only').catch(() => {}); }
     step(1, 'done', 'ready');
     step(i = 2, 'run', 'docs + code'); log('Reading README, docs and code (this is the long step)…');
     const out = await claude(DOCS_RULE + `You are a senior engineer and product thinker advising a contributor to ${repo}. After you understand the project deeply, explore the code and find
@@ -170,22 +202,23 @@ ipcMain.handle('prepare', async (e, { repo, number, idea, user, force, job, ck: 
     } else {
       // one shared clone per repo (set up under a lock so parallel jobs don't race), one git worktree per issue
       def = await withLock(repo, async () => {
+        chk(job); // a job stopped while waiting for the lock must not carry on
         step(i = 0, 'run');
         // write access (your own repo or a team repo): no fork needed, push the branch to the repo itself
-        direct = (await gh('api', `repos/${repo}`, '--jq', '.permissions.push').catch(() => 'false')).trim() === 'true';
+        const acc = await access(repo); direct = acc.direct;
+        if (acc.blocked) throw new Error(prBlockedMsg(repo));
         if (direct) log(`You have write access to ${repo}: skipping the fork, the branch will be pushed to the repo itself.`);
         else { log(`Forking ${repo} to ${user.login}…`); if (!fs.existsSync(base)) await gh('repo', 'fork', repo, '--clone=false'); }
         step(0, 'done', direct ? 'direct push (write access)' : `${user.login}/${repo.split('/')[1]}`);
         chk(job); step(i = 1, 'run');
-        if (!fs.existsSync(base)) { log('Cloning (shared by all issues of this repo)…'); await run('git', ['clone', direct ? `https://github.com/${repo}.git` : `https://github.com/${user.login}/${repo.split('/')[1]}.git`, base]); }
-        else log('Shared clone already exists, reusing it.');
+        await ensureBase({ base, url: direct ? `https://github.com/${repo}.git` : `https://github.com/${user.login}/${repo.split('/')[1]}.git`, log, job });
         // always make sure upstream exists (a half-finished earlier run can leave a clone without it)
         if (!direct) await git(base, 'remote', 'get-url', 'upstream').catch(() => git(base, 'remote', 'add', 'upstream', `https://github.com/${repo}.git`));
         step(1, 'done', base.replace(os.homedir(), '~'));
         chk(job); step(i = 2, 'run');
         const d = (await gh('repo', 'view', repo, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name')).trim();
         const up = direct ? 'origin' : 'upstream';
-        log(`Fetching ${up}/${d}…`); await git(base, 'fetch', up, d);
+        log(`Fetching ${up}/${d}…`); await gitLogged(['fetch', '--filter=blob:none', '--no-tags', '--progress', up, d], { cwd: base, log, job });
         if (fs.existsSync(dir)) await git(base, 'worktree', 'remove', '--force', dir).catch(() => fs.rmSync(dir, { recursive: true, force: true }));
         await git(base, 'worktree', 'prune');
         await git(base, 'worktree', 'add', '-B', branch, dir, `${up}/${d}`);
@@ -194,7 +227,7 @@ ipcMain.handle('prepare', async (e, { repo, number, idea, user, force, job, ck: 
         await git(base, 'config', 'user.email', `${user.id}+${user.login}@users.noreply.github.com`);
         const ex = path.join(base, '.git/info/exclude'); if (!fs.readFileSync(ex, 'utf8').includes('CLAUDE.md')) fs.appendFileSync(ex, '\n.claude/\nCLAUDE.md\n');
         return d;
-      });
+      }, () => log('Another run is already setting up this repo (clone/fetch). Waiting for it to finish…'));
       log(`Worktree ${path.basename(dir)}, committing as ${user.login}.`);
       step(2, 'done', branch); save({ setup: true, direct, def });
     }
@@ -225,7 +258,7 @@ If the verdict would be "skip" only because the proposal is TOO BIG (new public 
 {"verdict":"fix"|"skip"|"unclear","real":true|false,"reason":"one sentence","plan":"files and change you would make, or empty","slice":{"title":"short imperative title","plan":"exactly what the small slice changes, which files"} or null}
 
 TITLE: ${issue.title}\nSTATE: ${issue.state}\nLABELS: ${issue.labels.map(l => l.name).join(', ')}\n\n${issue.body}\n\nTHREAD:\n${thread}`, { cwd: dir, read: true, onLog: log, job });
-      let vv; try { vv = JSON.parse(raw.slice(raw.lastIndexOf('{'))); } catch { vv = { verdict: 'unclear', reason: 'could not parse the triage answer', plan: '' }; }
+      let vv; try { vv = G.lastJson(raw); } catch { throw new Error('Could not read the validation answer (not skipped): resume to retry.'); }
       log(`Verdict: ${vv.verdict.toUpperCase()}: ${vv.reason}`); save({ verdict: vv });
     }
     const v = ck.verdict;
@@ -340,19 +373,27 @@ ipcMain.handle('draft', (e, a) => makeDraft(a));
 
 
 // ---- ship: guards, then plain git + gh. No model is involved in commit/push/PR, so nothing can add a trailer ----
+const topicalOf = (repo, dir) => { let rd = ''; try { rd = fs.readFileSync(path.join(dir, fs.readdirSync(dir).find(f => /^readme/i.test(f)) || '-'), 'utf8').slice(0, 4000); } catch {} return G.aboutAi(repo, rd); };
+const authorOf = (dir) => git(dir, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>');
+// write access? and does the repo accept PRs from non-collaborators? (anthropics/claude-code: collaborators_only)
+async function access(repo) {
+  const j = JSON.parse(await gh('api', `repos/${repo}`).catch(() => '{}'));
+  return { direct: !!j.permissions?.push, blocked: G.prBlocked(j) };
+}
+const prBlockedMsg = (repo) => `${repo} only accepts pull requests from collaborators (its "pull request creation" setting), so GitHub rejects PRs from your account. Nothing was started. Skip this repo or ask the maintainers for access.`;
 async function shipPr({ repo, dir, branch, def, direct, title, body, user, draft }) {
   const prs = readJson('prs.json', {}), cap = readJson('settings.json', {}).prCap ?? 3;
   const times = [].concat(prs[repo] || []); // older files stored a single timestamp
   if (!G.rateOk(times, cap)) throw new Error(`Rate cap: ${times.filter(t => Date.now() - t < 864e5).length} PR(s) already opened to ${repo} in the last 24h (limit ${cap}; change it in Forge).`);
+  if ((await access(repo)).blocked) throw new Error(prBlockedMsg(repo));
   await git(dir, 'add', '-A');
   const names = await git(dir, 'diff', '--cached', '--name-only');
   if (!names.trim()) throw new Error('Nothing staged: the AI made no changes.');
-  const hit = G.findTrace(title, body, names, G.addedLines(await git(dir, 'diff', '--cached')));
+  const top = topicalOf(repo, dir), hit = G.findTraceT(top, title, body, names, G.addedLines(await git(dir, 'diff', '--cached')));
   if (hit) throw new Error(`Blocked, AI/co-author trace found: "${hit}"`);
   const lead = (body.split(/\n\s*\n/).find(p => p.trim() && !/^#/.test(p.trim())) || '').trim(); // first prose paragraph, not a heading
   await git(dir, 'commit', '-m', title, ...(lead ? ['-m', lead] : []));
-  const msg = await git(dir, 'log', '-1', '--format=%B%n%an <%ae>');
-  const hit2 = G.findTrace(msg); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
+  const hit2 = G.findTraceT(top, await git(dir, 'log', '-1', '--format=%B')) || G.findTrace(await authorOf(dir)); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
   await git(dir, 'push', '-u', 'origin', branch, '--force-with-lease');
   const url = (await gh('pr', 'create', '-R', repo, '--head', direct ? branch : `${user.login}:${branch}`, '--base', def, '--title', title, '--body', body, ...(draft ? ['--draft'] : []))).trim();
   prs[repo] = [...times.filter(t => Date.now() - t < 864e5), Date.now()]; writeJson('prs.json', prs);
@@ -471,8 +512,8 @@ ipcMain.handle('feedback', async (e, { repo, number, user, job, ck: saved, auto 
     if (!ck.prepared || !fs.existsSync(dir)) {
       step(i = 1, 'run'); log(`Getting branch ${fb.branch}…`);
       await withLock(repo, async () => {
-        if (!fs.existsSync(base)) await run('git', ['clone', fb.cross ? `https://github.com/${user.login}/${repo.split('/')[1]}.git` : `https://github.com/${repo}.git`, base]);
-        await git(base, 'fetch', 'origin', fb.branch);
+        await ensureBase({ base, url: fb.cross ? `https://github.com/${user.login}/${repo.split('/')[1]}.git` : `https://github.com/${repo}.git`, log, job });
+        await gitLogged(['fetch', '--filter=blob:none', '--no-tags', '--progress', 'origin', fb.branch], { cwd: base, log, job });
         if (fs.existsSync(dir)) await git(dir, 'reset', '--hard', `origin/${fb.branch}`);
         else { await git(base, 'worktree', 'prune'); await git(base, 'worktree', 'add', '-B', fb.branch, dir, `origin/${fb.branch}`); }
         await git(base, 'config', 'user.name', user.name || user.login);
@@ -530,10 +571,10 @@ async function pushUpdate({ repo, number, dir, branch, message, reply }) {
   await git(dir, 'add', '-A');
   const names = await git(dir, 'diff', '--cached', '--name-only');
   if (!names.trim()) throw new Error('Nothing staged: there are no changes to push.');
-  const hit = G.findTrace(message, reply, names, G.addedLines(await git(dir, 'diff', '--cached')));
+  const top = topicalOf(repo, dir), hit = G.findTraceT(top, message, reply, names, G.addedLines(await git(dir, 'diff', '--cached')));
   if (hit) throw new Error(`Blocked, AI/co-author trace found: "${hit}"`);
   await git(dir, 'commit', '-m', message);
-  const hit2 = G.findTrace(await git(dir, 'log', '-1', '--format=%B%n%an <%ae>')); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
+  const hit2 = G.findTraceT(top, await git(dir, 'log', '-1', '--format=%B')) || G.findTrace(await authorOf(dir)); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
   await git(dir, 'push', 'origin', branch);
   if ((reply || '').trim()) await gh('pr', 'comment', String(number), '-R', repo, '--body', reply);
   return true;
