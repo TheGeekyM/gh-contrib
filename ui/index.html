@@ -165,6 +165,7 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
     <div id="p-acct" class="on"><h3>Account</h3><div class="card" id="acct">…</div></div>
     <div id="p-find"><div class="fhero"><h1>Find repos</h1><p>Popular projects worth contributing to. Repos whose docs mention AI are hidden.</p></div>
       <div class="card filters">
+        <div class="frow"><label>Search</label><input id="fq" placeholder="a name or text, e.g. vue, markdown parser, or owner/name" style="flex:1;min-width:240px"><span class="d">Leave empty to browse popular repos by the filters below.</span></div>
         <div class="frow"><label>Language</label><span id="langchips"></span></div>
         <div class="frow"><label>Min stars</label><span id="starchips"></span>
           <button class="fgo" id="sug"><span data-ic="search"></span>Find repos</button></div>
@@ -398,11 +399,12 @@ function drawFilters() {
 }
 $('#sug').onclick = async () => {
   const out = $('#repos'), head = $('#reshead');
-  if (!S.languages.length) { head.innerHTML = '<span class="e">Pick at least one language.</span>'; return; }
+  const query = $('#fq').value.trim();
+  if (!query && !S.languages.length) { head.innerHTML = '<span class="e">Pick at least one language.</span>'; return; }
   out.innerHTML = '<div class="skel"></div>'.repeat(6); head.textContent = 'Searching GitHub and reading each repo’s contribution docs…';
   const btn = $('#sug'); btn.disabled = true; btn.classList.add('ld');
   try {
-    const r = await gc.suggest({ languages: S.languages, minStars: S.minStars });
+    const r = await gc.suggest({ languages: S.languages, minStars: S.minStars, query });
     const opened = (n) => !!R[n];
     head.innerHTML = `<b style="color:var(--ink)">${r.ok.length} repos</b>` + (r.hidden.length ? `<span class="pill warn" title="${esc(r.hidden.join(', '))}">${ic('alert')}${r.hidden.length} hidden, docs mention AI</span>` : '');
     out.innerHTML = r.ok.map(x => { const [o, n] = x.fullName.split('/'), h = hue(x.fullName);
@@ -410,7 +412,7 @@ $('#sug').onclick = async () => {
         <div class="rd" title="Click to expand">${esc(x.description || 'No description')}</div>
         <div class="rs">${x.noPr ? `<span class="pill warn" title="Only collaborators can open PRs here">${ic('alert')}no PRs</span>` : ''}<span class="pill">${ic('star')}${kfmt(x.stargazersCount)}</span><span class="pill">${ic('issues')}${kfmt(x.openIssuesCount)} open</span>${x.language ? `<span class="pill"><i class="ldot" style="--c:${LANGCOL[x.language] || '#888'}"></i>${esc(x.language)}</span>` : ''}</div>
         <div class="ract"><button data-r="${esc(x.fullName)}" class="${opened(x.fullName) ? 'g' : ''}">${opened(x.fullName) ? ic('check') + 'Opened' : ic('git-branch') + 'Open repo'}</button><button class="g" data-g="${esc(x.url)}">${ic('ext')}GitHub</button></div></div>`; }).join('')
-      || '<div class="empty" style="grid-column:1/-1">Nothing matched. Try fewer stars or more languages.</div>';
+      || '<div class="empty" style="grid-column:1/-1">Nothing matched. Try fewer stars or more languages.</div>'.replace('Try fewer stars or more languages.', query ? 'No repo found for that text.' : 'Try fewer stars or more languages.');
     out.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { openRepo(b.dataset.r, true); b.className = 'g'; b.innerHTML = ic('check') + 'Opened'; });
     out.querySelectorAll('.rd').forEach(d => d.onclick = () => d.classList.toggle('open'));
     out.querySelectorAll('[data-g]').forEach(b => b.onclick = () => go(b.dataset.g));
@@ -418,6 +420,7 @@ $('#sug').onclick = async () => {
   btn.disabled = false; btn.classList.remove('ld');
 };
 
+$('#fq').onkeydown = (e) => { if (e.key === 'Enter') $('#sug').click(); };
 $('#scan').onclick = topErr(async () => { const r = normRepo($('#repo').value); openRepo(r, false); await doScan(r); });
 $('#idea').onclick = topErr(async () => { const r = normRepo($('#repo').value); openRepo(r, false); runIdeas(r); });
 

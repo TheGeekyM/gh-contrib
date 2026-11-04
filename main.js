@@ -110,9 +110,15 @@ async function docs(repo) {
 const policyOf = (d) => G.hasPolicy(Object.fromEntries(Object.entries(d).filter(([f]) => !/SECURITY|PULL_REQUEST/.test(f))));
 
 // ---- suggestions: popular repos per language, AI-policy repos dropped ----
-ipcMain.handle('suggest', async (e, { languages, minStars = 5000 }) => {
-  const out = [];
-  for (const lang of languages) {
+ipcMain.handle('suggest', async (e, { languages, minStars = 5000, query = '' }) => {
+  const out = [], q = String(query || '').trim().replace(/^.*github\.com\//, '').replace(/\.git$/, '').replace(/\/+$/, '');
+  const F = 'fullName,description,stargazersCount,openIssuesCount,language,url';
+  if (q && /^[\w.-]+\/[\w.-]+$/.test(q)) { // an exact owner/name: fetch it directly
+    const r = await gh('repo', 'view', q, '--json', 'nameWithOwner,description,stargazerCount,issues,primaryLanguage,url').then(JSON.parse).catch(() => null);
+    if (r) out.push({ fullName: r.nameWithOwner, description: r.description, stargazersCount: r.stargazerCount, openIssuesCount: r.issues?.totalCount, language: r.primaryLanguage?.name, url: r.url });
+  }
+  if (q && !out.length) out.push(...JSON.parse(await gh('search', 'repos', ...q.split(/\s+/), '--sort', 'stars', '--limit', '24', '--archived=false', '--json', F))); // free text: ignores the language/star filters
+  for (const lang of q ? [] : languages) {
     const r = JSON.parse(await gh('search', 'repos', '--language', lang, '--stars', `>${minStars}`, '--sort', 'stars', '--limit', '15',
       '--archived=false', '--json', 'fullName,description,stargazersCount,openIssuesCount,language,url'));
     out.push(...r);
