@@ -25,4 +25,8 @@ const rejectKind = (reason) => /\b(closed|declined|rejected|won'?t accept|out of
 const isBot = (n) => /\[bot\]$|bot$|-bot|^github-actions$|^codecov|copilot|policy-service|-cla$|^cla|-service$|^dependabot|^renovate|^netlify|^vercel/i.test(n || '');
 // first line that looks like a real title (not assistant chatter); null if none
 const pickTitle = (lines) => { const i = lines.findIndex(l => { const t = l.replace(/^#+\s*/, '').trim(); return t && t.length <= 90 && !/[.:]$/.test(t) && !/^(I|I've|I'll|Here|Here's|The working|Note|Sure|Okay)\b/.test(t); }); return i < 0 ? null : { title: lines[i].replace(/^#+\s*/, '').trim(), rest: lines.slice(i + 1) }; };
-module.exports = { pickTitle, isBot, rejectKind, similar, matchIdea, lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };
+// where to post a reply: in the inline review thread(s) when ALL fresh human feedback is inline, else one general comment
+const replyThreads = (fresh) => { const h = fresh.filter(r => !r.bot); return h.length && h.every(r => r.kind === 'inline' && r.id) ? [...new Set(h.map(r => r.root || r.id))] : []; };
+// replies must describe finished work, never promise it ("I'll add", "will be added", "once I run")
+const promises = (t) => (String(t).match(/\b(I['’]?ll|I will|I am going to|will be added|gets added|once I (run|generate|add)|I['’]m (posting|adding|regenerating)|separate comment)\b/i) || [])[0] || null;
+module.exports = { promises, replyThreads, pickTitle, isBot, rejectKind, similar, matchIdea, lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };

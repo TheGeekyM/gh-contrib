@@ -478,11 +478,12 @@ async function collectReplies(repo, number, login) {
   const all = [
     ...pr.comments.map(c => ({ who: c.author?.login, body: c.body, at: c.createdAt, kind: 'comment' })),
     ...pr.reviews.map(r => ({ who: r.author?.login, body: r.body, at: r.submittedAt, kind: 'review ' + String(r.state).toLowerCase().replace('_', ' ') })),
-    ...inline.map(c => ({ who: c.user?.login, body: c.body, at: c.created_at, kind: 'inline', path: c.path })),
+    ...inline.map(c => ({ who: c.user?.login, body: c.body, at: c.created_at, kind: 'inline', path: c.path, id: c.id, root: c.in_reply_to_id || c.id })),
   ].filter(x => x.who && (x.body || '').trim() || x.kind?.startsWith('review '));
   const mine = all.filter(x => x.who === login).map(x => +new Date(x.at)).sort((a, b) => b - a)[0] || 0;
   const others = all.filter(x => x.who !== login).map(x => ({ ...x, bot: isBot(x.who) })).sort((a, b) => new Date(b.at) - new Date(a.at));
-  return { replies: others, needs: others.some(x => !x.bot && +new Date(x.at) > mine) };
+  const fresh = others.filter(x => +new Date(x.at) > mine);
+  return { replies: others, fresh, needs: fresh.some(x => !x.bot) };
 }
 ipcMain.handle('prs', async (e, { repo, login }) => {
   const list = JSON.parse(await gh('pr', 'list', '-R', repo, '--author', login, '--state', 'all', '-L', '20', '--json',
@@ -509,7 +510,7 @@ ipcMain.handle('feedback', async (e, { repo, number, user, job, ck: saved, auto 
     if (!ck.fb) {
       step(i = 0, 'run'); log(`Reading the PR #${number} conversation and checks…`);
       const pr = JSON.parse(await gh('pr', 'view', String(number), '-R', repo, '--json', 'title,body,headRefName,isCrossRepository,statusCheckRollup'));
-      const { replies } = await collectReplies(repo, number, user.login);
+      const { replies, fresh } = await collectReplies(repo, number, user.login); const threads = G.replyThreads(fresh);
       const human = replies.filter(r => !r.bot).slice(0, 20);
       const bad = (pr.statusCheckRollup || []).filter(c => ['FAILURE', 'TIMED_OUT', 'CANCELLED'].includes(String(c.conclusion).toUpperCase()) || String(c.state).toUpperCase() === 'FAILURE');
       const failing = bad.map(c => c.name || c.context);
@@ -520,7 +521,7 @@ ipcMain.handle('feedback', async (e, { repo, number, user, job, ck: saved, auto 
       log(`${human.length} human comment(s), ${failing.length} failing check(s).`);
       const cla = replies.some(x => x.bot && /\bCLA\b|contributor license agreement/i.test(x.body)); // a legal step only you can take
       if (cla) log('A bot is asking for a Contributor License Agreement. Agreeing is a legal step, so it is flagged for you and never done automatically.');
-      save({ cla, fb: { title: pr.title, branch: pr.headRefName, cross: pr.isCrossRepository, text, failing, ci } });
+      save({ cla, threads, fb: { title: pr.title, branch: pr.headRefName, cross: pr.isCrossRepository, text, failing, ci } });
     }
     const fb = ck.fb; step(0, 'done', `${fb.text ? 'feedback read' : 'no comments'}${fb.failing.length ? ', ' + fb.failing.length + ' failing' : ''}`); chk(job);
 
@@ -543,6 +544,8 @@ ipcMain.handle('feedback', async (e, { repo, number, user, job, ck: saved, auto 
       step(i = 2, 'run', 'AI is addressing it…'); log('Applying the feedback…');
       const out = await claude(DOCS_RULE + `This is an open pull request ("${fb.title}") on ${repo}; its branch is checked out in the current directory. Maintainers and/or CI gave feedback. Address it:
 - Make the requested changes with minimal, focused edits that follow the repo's style. Update or add tests when behaviour changes.
+- If a reviewer says a file or fixture is missing, CREATE it in this working tree (write the real content yourself, e.g. a fixture derived from the code); do not skip, soften or guard the test around it. If you truly cannot produce it, say so plainly in the reply instead of promising it.
+- The REPLY may only describe changes that exist in this working tree right now. Never promise future work ("I'll add", "will be added", "once I run").
 - If a comment is only a question or you disagree with it, do NOT change code for it; explain in the reply instead.
 - If a CI check failed (${fb.failing.join(', ') || 'none'}), find the cause in the code and fix it.
 - Edit files only; do not run git. No text mentioning AI tools.
@@ -571,8 +574,9 @@ FEEDBACK:\n${fb.text || '(no human comments; focus on the failing checks)'}\n\nF
     if (auto && !changed) { // nothing to push: answer the humans (if any) with the drafted reply, never reply to bots
       step(i = 4, 'run', 'posting reply…'); const reply = fb.text.trim() ? (ck.reply || '').trim() : '';
       const hit = reply && G.findTraceT(topicalOf(repo, dir), reply);
+      const pr = reply && G.promises(reply); if (pr) { log('Reply held back (it promises future work): ' + pr); step(4, 'run', 'your review'); return { ...res, autoBlocked: 'the drafted reply promises work that is not in the PR ("' + pr + '"): fix the work or edit the reply' }; }
       if (hit) { log('Reply held back (trace check): ' + hit); step(4, 'run', 'your review'); return { ...res, autoBlocked: 'the drafted reply tripped the no-AI-trace check: edit it and post it yourself' }; }
-      if (reply) { await gh('pr', 'comment', String(number), '-R', repo, '--body', reply); log('Reply posted on the PR.'); }
+      if (reply) { await postReply(repo, number, reply, ck.threads); log('Reply posted on the PR.'); }
       else log('Nothing to answer (the feedback came from bots / CI only).');
       save({ pushed: true, noPush: true }); step(4, 'done', reply ? 'reply posted' : 'nothing to answer');
       return { ...res, pushed: true, noPush: true, replied: !!reply, cla: !!ck.cla };
@@ -580,7 +584,7 @@ FEEDBACK:\n${fb.text || '(no human comments; focus on the failing checks)'}\n\nF
     if (auto && changed && (tr.ok || tr.env)) {
       step(i = 4, 'run', 'pushing update…'); log(tr.ok ? 'Tests passed: committing and pushing the update…' : `Tests could not run here (${tr.reason}): pushing so CI checks it…`);
       try {
-        await pushUpdate({ repo, number, dir, branch: fb.branch, message: 'Address review feedback', reply: fb.text.trim() ? ck.reply : '' });
+        await pushUpdate({ repo, number, dir, branch: fb.branch, message: 'Address review feedback', reply: fb.text.trim() ? ck.reply : '', threads: ck.threads });
         save({ pushed: true }); log('Update pushed to ' + fb.branch + (ck.reply ? ' and the reply was posted.' : '.')); step(4, 'done', 'update pushed');
         return { ...res, pushed: true };
       } catch (err) {
@@ -592,7 +596,13 @@ FEEDBACK:\n${fb.text || '(no human comments; focus on the failing checks)'}\n\nF
     return { ...res, autoBlocked: !auto ? null : !changed ? 'the feedback needed no code change, so nothing to push: review the reply and post it yourself' : `tests did not pass (${tr.reason})` };
   } catch (err) { step(i, 'fail', err.message.slice(0, 60)); log((/Stopped by you/.test(err.message) ? 'STOPPED: ' : 'FAILED: ') + err.message); throw err; }
 });
-async function pushUpdate({ repo, number, dir, branch, message, reply }) {
+// reply inside the reviewer's inline thread(s) when that is where the feedback is, otherwise a general PR comment
+async function postReply(repo, number, body, threads = []) {
+  if (!threads.length) return gh('pr', 'comment', String(number), '-R', repo, '--body', body);
+  for (const id of threads) await gh('api', '-X', 'POST', `repos/${repo}/pulls/${number}/comments/${id}/replies`, '-f', `body=${body}`);
+}
+async function pushUpdate({ repo, number, dir, branch, message, reply, threads }) {
+  const pr = G.promises(reply); if (pr) throw new Error(`Reply promises future work ("${pr}"): finish the work or edit the reply first.`);
   await git(dir, 'add', '-A');
   const names = await git(dir, 'diff', '--cached', '--name-only');
   if (!names.trim()) throw new Error('Nothing staged: there are no changes to push.');
@@ -601,7 +611,7 @@ async function pushUpdate({ repo, number, dir, branch, message, reply }) {
   await git(dir, 'commit', '-m', message);
   const hit2 = G.findTraceT(top, await git(dir, 'log', '-1', '--format=%B')) || G.findTrace(await authorOf(dir)); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
   await git(dir, 'push', 'origin', branch);
-  if ((reply || '').trim()) await gh('pr', 'comment', String(number), '-R', repo, '--body', reply);
+  if ((reply || '').trim()) await postReply(repo, number, reply, threads);
   return true;
 }
 ipcMain.handle('push', (e, a) => pushUpdate(a));
@@ -710,7 +720,7 @@ ipcMain.handle('settings:set', (e, s) => { writeJson('settings.json', s); return
 
 app.disableHardwareAcceleration(); // GPU process crashes on this box otherwise
 app.whenReady().then(() => {
-  const win = new BrowserWindow({ width: 1600, height: 1000, minWidth: 1100, backgroundColor: '#090909', autoHideMenuBar: true,
+  const win = new BrowserWindow({ width: 1600, height: 1000, minWidth: 1100, backgroundColor: '#090909', autoHideMenuBar: true, icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), webviewTag: true, contextIsolation: true } });
   win.loadFile(path.join(__dirname, 'ui', 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });

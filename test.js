@@ -40,3 +40,13 @@ assert(g.isBot('meta-cla'));
 assert.deepStrictEqual(g.pickTitle(["I've read the helper. Here's the PR description.", '', 'Add contract tests', '', 'body']).title, 'Add contract tests');
 assert.strictEqual(g.pickTitle(['Only chatter here.']), null);
 console.log('ok title');
+
+assert.deepStrictEqual(g.replyThreads([{ kind: 'inline', id: 5, root: 3 }, { kind: 'inline', id: 6, root: 3 }]), [3]);
+assert.deepStrictEqual(g.replyThreads([{ kind: 'inline', id: 5 }, { kind: 'comment' }]), []);
+assert.deepStrictEqual(g.replyThreads([{ kind: 'inline', id: 5, bot: true }]), []);
+console.log('ok threads');
+
+assert(g.promises("The snapshot itself gets added to the PR from a real run"));
+assert(g.promises("I'll regenerate it"));
+assert.strictEqual(g.promises('I removed the skip guards and added the fixture.'), null);
+console.log('ok promises');

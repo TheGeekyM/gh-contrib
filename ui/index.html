@@ -59,7 +59,7 @@ button.ld::after{content:'';position:absolute;left:50%;top:50%;width:14px;height
 details summary{cursor:pointer;color:var(--dim);margin:10px 0 6px}
 
 .badge{margin-left:auto;background:rgba(255,255,255,.1);border-radius:999px;padding:1px 8px;font-size:11px}.item.on .badge{background:rgba(0,0,0,.15)}
-.item .x{margin-left:auto;opacity:0;padding:0 4px}.item:hover .x{opacity:.6}.item .x:hover{opacity:1}.item small+small{margin-left:6px}.item small{margin-left:auto;color:var(--ok);font-size:10px}
+.item .x{margin-left:auto;opacity:0;padding:0 4px}.item:hover .x{opacity:.6}.item .x:hover{opacity:1}.item small{color:var(--ok);font-size:10px}.ritem{align-items:flex-start}.ritem>i{margin-top:2px}.ritem .rn{min-width:0;flex:1}.ritem .rt{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ritem .rc{display:flex;flex-wrap:wrap;gap:3px 8px;margin-top:2px}.ritem .rc:empty{display:none}.ritem .x{margin-top:2px}
 .sec .plus{float:right;cursor:pointer;color:var(--acc);font-size:15px;line-height:10px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
 .tile{cursor:pointer;margin:0;transition:transform .15s,border-color .15s}.tile:hover{transform:translateY(-2px);border-color:rgba(142,198,255,.45)}
@@ -69,6 +69,17 @@ details summary{cursor:pointer;color:var(--dim);margin:10px 0 6px}
 .chip{border-radius:999px;padding:2px 9px;font-size:10px;font-weight:600;border:1px solid}
 .c-queued{color:#aaa;border-color:#555;background:rgba(150,150,150,.1)}.c-running{color:var(--acc);border-color:rgba(142,198,255,.5);background:rgba(142,198,255,.1)}
 .c-review{color:#ffd27a;border-color:rgba(255,210,122,.5);background:rgba(255,210,122,.1)}.c-done{color:#7be0b0;border-color:rgba(63,178,127,.5);background:rgba(63,178,127,.12)}
+.c-merged{color:#c9a0ff;border-color:rgba(201,160,255,.55);background:rgba(201,160,255,.14)}.card.merged{border-color:rgba(201,160,255,.35);background:linear-gradient(0deg,rgba(201,160,255,.07),rgba(201,160,255,.07)),var(--card,transparent)}
+.pcs{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.pc{position:relative;display:flex;flex-direction:column;gap:9px;padding:14px 16px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.015));overflow:hidden;transition:border-color .15s,transform .15s}
+.pc:hover{border-color:rgba(142,198,255,.35);transform:translateY(-1px)}
+.pc:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ac,#8ec6ff)}
+.pc.t-merged{--ac:#c9a0ff;background:linear-gradient(180deg,rgba(201,160,255,.09),rgba(201,160,255,.02))}.pc.t-closed{--ac:#ff8a8a}.pc.t-bad{--ac:#ff6b6b;background:linear-gradient(180deg,rgba(255,107,107,.07),rgba(255,107,107,.01))}.pc.t-warn{--ac:#ffb86b}.pc.t-draft{--ac:#8a94a6}
+.pc-h{display:flex;align-items:center;justify-content:space-between;gap:8px}.pc .prn{font-family:ui-monospace,monospace;font-size:12px;color:var(--ac);text-decoration:none;background:rgba(255,255,255,.06);padding:2px 8px;border-radius:999px}
+.pc-t{margin:0;font-size:14px;line-height:1.35;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pc-bar{display:flex;gap:2px;height:4px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,.06)}.pc-bar i{display:block;min-width:0}.pc-bar .ok{background:#3fb27f}.pc-bar .bad{background:#ff6b6b}.pc-bar .pend{background:#ffd27a}
+.pc .rs{display:flex;flex-wrap:wrap;gap:6px}.pc-rp{font-size:12px;border-top:1px solid rgba(255,255,255,.06);padding-top:8px}.pc-rp p{margin:4px 0}
+.pc-f{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto;padding-top:2px;font-size:12px}.pc-f .d{display:flex;align-items:center;gap:5px}.pc-f .ract{display:flex;gap:6px;margin:0}
 .c-stopped{color:#c9a0ff;border-color:rgba(201,160,255,.5);background:rgba(201,160,255,.1)}.c-failed{color:#ff8a8a;border-color:rgba(255,107,107,.5);background:rgba(255,107,107,.1)}
 .back{cursor:pointer;color:var(--dim);margin-right:6px}.back:hover{color:var(--ink)}.mx{width:60px!important;display:inline-block;margin:0 0 0 6px!important;padding:3px 6px!important}
 
@@ -260,7 +271,7 @@ $('#max').onchange = () => { S.max = Math.max(1, Math.min(8, +$('#max').value ||
 const normRepo = (v) => { const r = String(v || '').trim().replace(/^.*github\.com\//, '').replace(/\.git$/, '').replace(/^\/|\/$/g, '').split('/').slice(0, 2).join('/'); if (!/^[\w.-]+\/[\w.-]+$/.test(r)) throw new Error('Enter a repo as owner/name, e.g. laravel/framework (or pick one in Find repos).'); return r; };
 function renderRepoList() {
   $('#repolist').innerHTML = Object.keys(R).map(r => { const n = J.filter(j => j.repo === r && (j.status === 'running' || j.status === 'queued' || j.status === 'ci')).length, dn = J.filter(j => j.repo === r && j.status === 'done' && j.kind !== 'ideas').length;
-    return `<div class="item ritem ${r === active ? 'on' : ''}" data-r="${esc(r)}"><i>${ic('git-branch')}</i>${esc(r)}${R[r].blocked ? `<small style="color:#ff9b9b" title="${esc(R[r].blocked)}">no PRs</small>` : ''}${R[r].needs ? `<small style="color:#ffb86b">${R[r].needs} repl${R[r].needs > 1 ? 'ies' : 'y'}</small>` : ''}${n ? `<small>${n} running</small>` : ''}${dn ? `<small style="color:var(--ok)">${dn} done</small>` : ''}<span class="x" data-x="${esc(r)}" title="Close">${ic('x')}</span></div>`; }).join('') || '<div class="d" style="padding:4px 20px;font-size:11px">none yet</div>';
+    return `<div class="item ritem ${r === active ? 'on' : ''}" data-r="${esc(r)}"><i>${ic('git-branch')}</i><div class="rn"><span class="rt">${esc(r)}</span><div class="rc">${R[r].blocked ? `<small style="color:#ff9b9b" title="${esc(R[r].blocked)}">no PRs</small>` : ''}${R[r].needs ? `<small style="color:#ffb86b">${R[r].needs} repl${R[r].needs > 1 ? 'ies' : 'y'}</small>` : ''}${n ? `<small>${n} running</small>` : ''}${dn ? `<small style="color:var(--ok)">${dn} done</small>` : ''}${R[r].merged ? `<small style="color:#c9a0ff" title="PRs accepted and merged">${R[r].merged} merged</small>` : ''}</div></div><span class="x" data-x="${esc(r)}" title="Close">${ic('x')}</span></div>`; }).join('') || '<div class="d" style="padding:4px 20px;font-size:11px">none yet</div>';
   document.querySelectorAll('.ritem').forEach(i => i.onclick = (e) => { if (e.target.dataset.x) return closeRepo(e.target.dataset.x); activateRepo(i.dataset.r); });
 }
 function openRepo(repo, scanNow, quiet) {
@@ -270,7 +281,7 @@ function openRepo(repo, scanNow, quiet) {
     el.innerHTML = `<div class="seg"><span class="chipb on" data-t="issues">${ic('issues')}Issues<b class="c-issues"></b></span><span class="chipb" data-t="ideas">${ic('sparkles')}Ideas<b class="c-ideas"></b></span><span class="chipb" data-t="done">${ic('check')}Done<b class="c-done"></b></span><span class="chipb" data-t="rejected">${ic('flag')}Rejected<b class="c-rejected"></b></span><button class="g clr" style="margin-left:auto;padding:4px 12px" title="Forget the saved results of this tab">${ic('x')} Clear</button></div>
       <div class="sc">${PH_ISSUES(repo)}</div><div class="idv" style="display:none">${PH_IDEAS}</div><div class="dv" style="display:none"><div class="empty">Loading…</div></div><div class="rv" style="display:none"></div>`;
     $('#scanout').append(el); R[repo] = { el, sc: el.querySelector('.sc'), idv: el.querySelector('.idv'), dv: el.querySelector('.dv'), rv: el.querySelector('.rv'), needs: 0 };
-    checkAccess(repo); setTimeout(() => paintRej(repo), 0);
+    checkAccess(repo); refreshDone(repo); setTimeout(() => paintRej(repo), 0);
     el.querySelectorAll('[data-t]').forEach(c => c.onclick = () => setTab(repo, c.dataset.t));
     el.querySelector('.clr').onclick = () => {
       if (R[repo].tab === 'done') { const b = el.querySelector('.clr'); b.classList.add('ld'); return refreshDone(repo, true).finally(() => b.classList.remove('ld')); }
@@ -301,23 +312,26 @@ async function refreshDone(repo, force) {
   if (!r.done) r.dv.innerHTML = '<div class="empty">Loading your PRs…</div>';
   try {
     r.done = await gc.prs({ repo, login: me.login }); r.doneAt = Date.now();
-    r.needs = r.done.filter(x => x.needs).length; setCnt(repo, 'done', r.done.length, r.needs ? ` <i style="color:#ffb86b;font-style:normal" title="need your reply">· ${r.needs} ✉</i>` : ''); renderRepoList();
-    const stc = { OPEN: 'c-running', MERGED: 'c-done', CLOSED: 'c-failed' };
+    r.needs = r.done.filter(x => x.needs).length; r.merged = r.done.filter(x => x.state === 'MERGED').length; setCnt(repo, 'done', r.done.length, (r.merged ? ` <i style="color:#c9a0ff;font-style:normal" title="merged">· ${r.merged} merged</i>` : '') + (r.needs ? ` <i style="color:#ffb86b;font-style:normal" title="need your reply">· ${r.needs} ✉</i>` : '')); renderRepoList();
+    const stc = { OPEN: 'c-running', MERGED: 'c-merged', CLOSED: 'c-failed' };
     r.dv.innerHTML = `<div class="res-h" style="margin-top:0"><b style="color:var(--ink)">${r.done.length} PR${r.done.length === 1 ? '' : 's'}</b><span>by ${esc(me.login)} in ${esc(repo)} · checked ${agoT(r.doneAt)}</span></div>`
-      + (r.done.length ? `<div class="ideas">${r.done.map((x, n) => { const human = x.replies.filter(y => !y.bot), k = x.checks;
+      + (r.done.length ? `<div class="pcs">${r.done.map((x, n) => { const human = x.replies.filter(y => !y.bot), k = x.checks;
         const rev = { APPROVED: ['ok', 'Approved'], CHANGES_REQUESTED: ['warn', 'Changes requested'], REVIEW_REQUIRED: ['', 'Review required'] }[x.review];
         const fixable = x.state === 'OPEN' && (x.needs || k.fail || x.review === 'CHANGES_REQUESTED');
-        return `<div class="card idea"><div style="display:flex;gap:8px;align-items:center"><a class="num" href="#" data-u="${esc(x.url)}">#${x.number}</a><h4>${esc(x.title)}</h4><span class="chip ${stc[x.state] || ''}">${x.draft ? 'Draft' : x.state === 'MERGED' ? 'Merged' : x.state === 'OPEN' ? 'Open' : 'Closed'}</span></div>
-        <div class="rs">${rev ? `<span class="pill ${rev[0]}">${rev[1]}</span>` : ''}${k.pass + k.fail + k.pend ? `<span class="pill ${k.fail ? 'warn' : k.pend ? '' : 'ok'}" title="CI checks">${ic(k.fail ? 'alert' : k.pend ? 'clock' : 'check')} ${k.pass} passed${k.fail ? ', ' + k.fail + ' failed' : ''}${k.pend ? ', ' + k.pend + ' running' : ''}</span>` : ''}${x.needs ? `<span class="pill warn">${ic('message')}needs your reply</span>` : ''}<span class="pill">${ic('clock')}${agoT(x.updatedAt)}</span></div>
-        ${human.length ? `<div><div class="k">Replies (${human.length})</div>${human.slice(0, 3).map(y => `<p style="margin:4px 0"><b>@${esc(y.who)}</b> <span class="d">${esc(y.kind)}${y.path ? ' · ' + esc(y.path) : ''} · ${agoT(y.at)}</span><br>${esc(String(y.body).replace(/\s+/g, ' ').slice(0, 220))}</p>`).join('')}</div>` : (x.state === 'OPEN' ? '<div class="d" style="font-size:12px">No replies yet.</div>' : '')}
-        <div class="ract"><button class="g" data-u="${esc(x.url)}">${ic('ext')}View</button>${fixable ? `<button data-fx="${n}">${ic('flame')}Address feedback</button>` : ''}</div></div>`; }).join('')}</div>` : '<div class="empty">No PRs from you in this repo yet. Finished Forge runs show up here.</div>');
+        const tone = x.state === 'MERGED' ? 'merged' : x.state === 'CLOSED' ? 'closed' : (k.fail || x.review === 'CHANGES_REQUESTED') ? 'bad' : x.needs ? 'warn' : x.draft ? 'draft' : 'open', tot = k.pass + k.fail + k.pend;
+        return `<div class="pc t-${tone}"><div class="pc-h"><a class="prn" href="#" data-u="${esc(x.url)}">#${x.number}</a><span class="chip ${stc[x.state] || ''}">${x.draft ? 'Draft' : x.state === 'MERGED' ? '✓ Merged' : x.state === 'OPEN' ? 'Open' : 'Closed'}</span></div>
+        <h4 class="pc-t" title="${esc(x.title)}">${esc(x.title)}</h4>
+        ${tot ? `<div class="pc-bar" title="${k.pass} passed, ${k.fail} failed, ${k.pend} running"><i class="ok" style="flex:${k.pass}"></i><i class="bad" style="flex:${k.fail}"></i><i class="pend" style="flex:${k.pend}"></i></div>` : ''}
+        <div class="rs">${rev ? `<span class="pill ${rev[0]}">${rev[1]}</span>` : ''}${tot ? `<span class="pill ${k.fail ? 'warn' : k.pend ? '' : 'ok'}" title="CI checks">${ic(k.fail ? 'alert' : k.pend ? 'clock' : 'check')} ${k.pass} passed${k.fail ? ', ' + k.fail + ' failed' : ''}${k.pend ? ', ' + k.pend + ' running' : ''}</span>` : ''}${x.needs ? `<span class="pill warn">${ic('message')}needs your reply</span>` : ''}</div>
+        ${human.length ? `<div class="pc-rp"><div class="k">Replies (${human.length})</div>${human.slice(0, 2).map(y => `<p><b>@${esc(y.who)}</b> <span class="d">${esc(y.kind)}${y.path ? ' · ' + esc(y.path) : ''} · ${agoT(y.at)}</span><br>${esc(String(y.body).replace(/\s+/g, ' ').slice(0, 160))}</p>`).join('')}</div>` : ''}
+        <div class="pc-f"><span class="d">${ic('clock')} ${agoT(x.updatedAt)}${!human.length && x.state === 'OPEN' ? ' · no replies yet' : ''}</span><span class="ract"><button class="g" data-u="${esc(x.url)}">${ic('ext')}View</button>${fixable ? `<button data-fx="${n}">${ic('flame')}Address feedback</button>` : ''}</span></div></div>`; }).join('')}</div>` : '<div class="empty">No PRs from you in this repo yet. Finished Forge runs show up here.</div>');
     r.dv.querySelectorAll('[data-u]').forEach(a => a.onclick = (e) => { e.preventDefault(); go(a.dataset.u); });
     r.dv.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { const x = r.done[+b.dataset.fx];
       const ex = J.find(q => q.kind === 'feedback' && q.repo === repo && q.number === x.number && !['failed', 'stopped', 'paused', 'done'].includes(q.status));
       sentBtn(b, ex || addJob({ kind: 'feedback', repo, number: x.number, title: x.title })); });
   } catch (e) { r.dv.innerHTML = `<div class="e">${esc(msg(e))}</div>`; }
 }
-setInterval(() => Object.keys(R).forEach(r => refreshDone(r, true)), 10 * 60e3); // keep the "needs your reply" badges fresh
+setTimeout(() => Object.keys(R).forEach(r => refreshDone(r)), 6000); setInterval(() => Object.keys(R).forEach(r => refreshDone(r, true)), 10 * 60e3); // keep the "needs your reply" badges fresh
 function restoreIdeas(repo, c) {
   const r = R[repo], j = { id: 'j' + (++jid), kind: 'ideas', repo, steps: IDEA_STEPS.map(() => ({ status: 'done' })), log: c.log || '', status: 'review', t0: c.at, t1: c.at, result: c.result, name: `${repo} · ideas` };
   j.view = document.createElement('div'); r.idv.innerHTML = ''; r.idv.append(j.view); JOBS[j.id] = j; r.ideas = j; renderJobView(j);
@@ -632,8 +646,8 @@ async function renderFollow(j) {
   q('.rt').onclick = async () => { const x = busy(q('.rt'), 'Running…'); q('.to').style.display = 'block'; q('.to').textContent = await gc.test({ dir: c.dir, cmd: q('.tc').value }); x(); };
   q('.push').onclick = async () => { try {
     if (d && !await ask({ title: 'Push update?', text: `Push to ${c.branch} (PR #${j.number}) as ${me.login}.`, ok: 'Push' })) return;
-    if (d) await gc.push({ repo: j.repo, number: j.number, dir: c.dir, branch: c.branch, message: 'Address review feedback', reply: q('.rp').value });
-    else if (q('.rp').value.trim()) await gc.push({ repo: j.repo, number: j.number, dir: c.dir, branch: c.branch, message: '', reply: q('.rp').value }).catch(e => { if (!/Nothing staged/.test(msg(e))) throw e; });
+    if (d) await gc.push({ repo: j.repo, number: j.number, dir: c.dir, branch: c.branch, message: 'Address review feedback', reply: q('.rp').value, threads: j.ck?.threads });
+    else if (q('.rp').value.trim()) await gc.push({ repo: j.repo, number: j.number, dir: c.dir, branch: c.branch, message: '', reply: q('.rp').value, threads: j.ck?.threads }).catch(e => { if (!/Nothing staged/.test(msg(e))) throw e; });
     j.steps[4] = { status: 'done', detail: 'pushed' }; j.ck = { ...(j.ck || {}), pushed: true }; j.status = 'done'; j.prUrl = (R[j.repo]?.done || []).find(x => x.number === j.number)?.url || ''; j.doneNote = 'Update pushed.'; renderPane(j); paint(j); renderBoard(); saveJobs(); if (S.auto !== false) startCi(j); setTimeout(() => refreshDone(j.repo, true), 4000);
   } catch (e) { q('.res').innerHTML = `<div class="e">${esc(msg(e))}</div>`; } };
 }
