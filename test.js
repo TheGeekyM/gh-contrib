@@ -4,5 +4,7 @@ assert(g.findTrace('🤖 Generated with Claude Code'));
 assert.strictEqual(g.findTrace('fix null check', 'Fixes #12'), null);
 assert.strictEqual(g.addedLines('+++ b/a\n+hi\n-claude\n ctx'), '+hi');
 assert.deepStrictEqual(g.hasPolicy({ 'CONTRIBUTING.md': 'No AI-generated PRs', 'SECURITY.md': 'email us' }), ['CONTRIBUTING.md']);
-assert(!g.rateOk(Date.now() - 1000)); assert(g.rateOk(Date.now() - 9e7)); assert(g.rateOk(undefined));
+const now = Date.now();
+assert(!g.rateOk([now - 1000], 1)); assert(g.rateOk([now - 1000], 3)); assert(g.rateOk([now - 9e7], 1)); assert(g.rateOk(undefined, 1)); assert(g.rateOk([now, now, now, now], 0));
+assert(!g.rateOk([now - 1, now - 2, now - 3], 3));
 console.log('ok');

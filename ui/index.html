@@ -96,6 +96,7 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
 .tile .tx{opacity:0;cursor:pointer;color:var(--dim);display:inline-flex}.tile:hover .tx{opacity:.7}.tile .tx:hover{opacity:1;color:#ff8a8a}.tile .tx svg.i{width:13px;height:13px}
 .c-paused{color:#ffb86b;border-color:rgba(255,184,107,.5);background:rgba(255,184,107,.1)}.tile .tx.run{opacity:.85;color:#ffb86b}.tile .tx.run:hover{color:#ff8a8a}
 .stopbar{display:flex;gap:8px;margin:0 0 10px}
+.c-ci{color:var(--acc);border-color:rgba(142,198,255,.5);background:rgba(142,198,255,.1)}
 </style>
 <div id="tabs"><span class="on">Dashboard</span><span id="tw">GitHub</span></div>
 <div id="hdr"><span class="logo" data-ic="git-branch"></span><b>gh-contrib</b><span id="crumb">› pick a repo</span><span id="chip">not signed in</span></div>
@@ -119,17 +120,18 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
     <div id="p-repo"><div class="hero"><h1>Repos</h1><span class="d">Open as many as you like. Each keeps its own scan.</span></div>
       <div class="bar"><input id="repo" placeholder="owner/name, e.g. laravel/framework"><button class="g" id="idea">Ideas</button><button id="scan">Scan issues</button></div>
       <div id="rerr" class="e"></div><div id="scanout"></div></div>
-    <div id="p-forge"><div id="board"><div class="hero"><h1>Forge</h1><span class="d">Runs go in parallel; the rest queue. <label>Parallel <input class="mx" id="max" type="number" min="1" max="8"></label></span></div><div class="stats" id="fchips"></div><div id="tiles"></div></div><div id="jobviews"></div></div>
+    <div id="p-forge"><div id="board"><div class="hero"><h1>Forge</h1><span class="d">Runs go in parallel; the rest queue. <label>Parallel <input class="mx" id="max" type="number" min="1" max="8"></label> <label title="Cap on PRs per repo per 24h (0 = no cap)">PRs/repo/day <input class="mx" id="prcap" type="number" min="0" max="50"></label> <label title="When the tests pass, commit and open the PR without waiting for you"><input type="checkbox" id="auto"> Auto-open PR when tests pass</label></span></div><div class="stopbar" id="ftools" style="align-items:center"></div><div class="stats" id="fchips"></div><div id="tiles"></div></div><div id="jobviews"></div></div>
     <div id="p-web"><webview id="wv" src="https://github.com" partition="persist:github"></webview></div>
   </div>
 </div>
 <script>
 const $ = (s) => document.querySelector(s), esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-let me, S, active = null, jid = 0, fRepo = null, CACHE = {}; const R = {}, J = [], JOBS = {};
-const WORK_STEPS = ['Forking repo', 'Cloning', 'Branch & identity', 'Reading the issue', 'Reading docs & validating', 'AI fixing', 'Writing unit tests', 'Review & PR'];
+let me, S, active = null, jid = 0, fRepo = null, showSk = false, CACHE = {}; const sel = new Set(); const R = {}, J = [], JOBS = {};
+const WORK_STEPS = ['Forking repo', 'Cloning', 'Branch & identity', 'Reading the issue', 'Reading docs & validating', 'AI fixing', 'Writing unit tests', 'Running tests', 'Review & PR', 'CI checks'];
+const FB_STEPS = ['Reading feedback', 'Preparing branch', 'Applying changes', 'Running tests', 'Review & push', 'CI checks'];
 const IDEA_STEPS = ['Repo & issues', 'Cloning for reading', 'Reading docs & code', 'Ideas ready'];
-const STEPSOF = (j) => j.kind === 'ideas' ? IDEA_STEPS : WORK_STEPS;
-const CHIP = { paused: 'Stopped', queued: 'Queued', running: 'Running', review: 'Ready', done: 'PR opened', stopped: 'Skipped', failed: 'Failed' };
+const STEPSOF = (j) => j.kind === 'ideas' ? IDEA_STEPS : j.kind === 'feedback' ? FB_STEPS : WORK_STEPS;
+const CHIP = { ci: 'CI running', paused: 'Stopped', queued: 'Queued', running: 'Running', review: 'Ready', done: 'PR opened', stopped: 'Skipped', failed: 'Failed' };
 const IC = {
   user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
@@ -182,29 +184,32 @@ async function account() {
   $('#sw').onclick = () => { gc.login(); $('#acct').insertAdjacentHTML('beforeend', '<div class="d">Finish in the terminal, then <a href="#" id="rf">refresh</a>.</div>'); $('#rf').onclick = () => account(); };
 }
 (async () => {
-  S = await gc.settingsGet(); CACHE = await gc.cacheGet(); restoreJobs(await gc.jobsGet()); S.max = S.max || 3; $('#max').value = S.max; paintIcons(); S.languages = S.languages.length ? S.languages : ['PHP', 'JavaScript']; drawFilters(); account();
+  S = await gc.settingsGet(); CACHE = await gc.cacheGet(); restoreJobs(await gc.jobsGet()); S.max = S.max || 3; $('#max').value = S.max; $('#auto').checked = S.auto !== false; $('#prcap').value = S.prCap ?? 3; paintIcons(); S.languages = S.languages.length ? S.languages : ['PHP', 'JavaScript']; drawFilters(); account().then(() => { Object.keys(R).forEach(r => refreshDone(r, true)); pump(); });
   (S.repos || (S.repo ? [S.repo] : [])).forEach(r => { try { openRepo(r, false, true); } catch {} });
   if (active) show('acct');
   renderBoard();
 })();
+$('#auto').onchange = () => { S.auto = $('#auto').checked; gc.settingsSet(S); };
+$('#prcap').onchange = () => { S.prCap = Math.max(0, Math.min(50, +$('#prcap').value || 0)); $('#prcap').value = S.prCap; gc.settingsSet(S); };
 $('#max').onchange = () => { S.max = Math.max(1, Math.min(8, +$('#max').value || 3)); $('#max').value = S.max; gc.settingsSet(S); pump(); };
 
 // ---------- repos: many open at once, each with its own scan ----------
 const normRepo = (v) => { const r = String(v || '').trim().replace(/^.*github\.com\//, '').replace(/\.git$/, '').replace(/^\/|\/$/g, '').split('/').slice(0, 2).join('/'); if (!/^[\w.-]+\/[\w.-]+$/.test(r)) throw new Error('Enter a repo as owner/name, e.g. laravel/framework (or pick one in Find repos).'); return r; };
 function renderRepoList() {
-  $('#repolist').innerHTML = Object.keys(R).map(r => { const n = J.filter(j => j.repo === r && (j.status === 'running' || j.status === 'queued')).length;
-    return `<div class="item ritem ${r === active ? 'on' : ''}" data-r="${esc(r)}"><i>${ic('git-branch')}</i>${esc(r)}${n ? `<small>${n} running</small>` : ''}<span class="x" data-x="${esc(r)}" title="Close">${ic('x')}</span></div>`; }).join('') || '<div class="d" style="padding:4px 20px;font-size:11px">none yet</div>';
+  $('#repolist').innerHTML = Object.keys(R).map(r => { const n = J.filter(j => j.repo === r && (j.status === 'running' || j.status === 'queued' || j.status === 'ci')).length;
+    return `<div class="item ritem ${r === active ? 'on' : ''}" data-r="${esc(r)}"><i>${ic('git-branch')}</i>${esc(r)}${R[r].needs ? `<small style="color:#ffb86b">${R[r].needs} repl${R[r].needs > 1 ? 'ies' : 'y'}</small>` : ''}${n ? `<small>${n} running</small>` : ''}<span class="x" data-x="${esc(r)}" title="Close">${ic('x')}</span></div>`; }).join('') || '<div class="d" style="padding:4px 20px;font-size:11px">none yet</div>';
   document.querySelectorAll('.ritem').forEach(i => i.onclick = (e) => { if (e.target.dataset.x) return closeRepo(e.target.dataset.x); activateRepo(i.dataset.r); });
 }
 function openRepo(repo, scanNow, quiet) {
   repo = normRepo(repo);
   if (!R[repo]) {
     const el = document.createElement('div'); el.style.display = 'none';
-    el.innerHTML = `<div class="seg"><span class="chipb on" data-t="issues">${ic('issues')}Issues</span><span class="chipb" data-t="ideas">${ic('sparkles')}Ideas</span><button class="g clr" style="margin-left:auto;padding:4px 12px" title="Forget the saved results of this tab">${ic('x')} Clear</button></div>
-      <div class="sc">${PH_ISSUES(repo)}</div><div class="idv" style="display:none">${PH_IDEAS}</div>`;
-    $('#scanout').append(el); R[repo] = { el, sc: el.querySelector('.sc'), idv: el.querySelector('.idv') };
+    el.innerHTML = `<div class="seg"><span class="chipb on" data-t="issues">${ic('issues')}Issues</span><span class="chipb" data-t="ideas">${ic('sparkles')}Ideas</span><span class="chipb" data-t="done">${ic('check')}Done<b class="dn"></b></span><button class="g clr" style="margin-left:auto;padding:4px 12px" title="Forget the saved results of this tab">${ic('x')} Clear</button></div>
+      <div class="sc">${PH_ISSUES(repo)}</div><div class="idv" style="display:none">${PH_IDEAS}</div><div class="dv" style="display:none"><div class="empty">Loading…</div></div>`;
+    $('#scanout').append(el); R[repo] = { el, sc: el.querySelector('.sc'), idv: el.querySelector('.idv'), dv: el.querySelector('.dv'), needs: 0 };
     el.querySelectorAll('[data-t]').forEach(c => c.onclick = () => setTab(repo, c.dataset.t));
     el.querySelector('.clr').onclick = () => {
+      if (R[repo].tab === 'done') return refreshDone(repo, true);
       const r = R[repo], issues = (r.tab || 'issues') === 'issues';
       gc.cacheSet({ repo, key: issues ? 'scan' : 'ideas', value: null });
       if (CACHE[repo]) delete CACHE[repo][issues ? 'scan' : 'ideas'];
@@ -218,9 +223,35 @@ function openRepo(repo, scanNow, quiet) {
   if (scanNow) doScan(repo);
 }
 function setTab(repo, t) {
-  const r = R[repo]; r.tab = t; r.sc.style.display = t === 'issues' ? 'block' : 'none'; r.idv.style.display = t === 'ideas' ? 'block' : 'none';
+  const r = R[repo]; r.tab = t; r.sc.style.display = t === 'issues' ? 'block' : 'none'; r.idv.style.display = t === 'ideas' ? 'block' : 'none'; r.dv.style.display = t === 'done' ? 'block' : 'none';
   r.el.querySelectorAll('[data-t]').forEach(c => c.classList.toggle('on', c.dataset.t === t));
+  r.el.querySelector('.clr').innerHTML = t === 'done' ? ic('clock') + ' Refresh' : ic('x') + ' Clear';
+  if (t === 'done') refreshDone(repo);
 }
+// ---- Done: my PRs in this repo with CI checks and replies on me ----
+async function refreshDone(repo, force) {
+  const r = R[repo]; if (!r || !me) return;
+  if (!force && r.doneAt && Date.now() - r.doneAt < 60000) return;
+  if (!r.done) r.dv.innerHTML = '<div class="empty">Loading your PRs…</div>';
+  try {
+    r.done = await gc.prs({ repo, login: me.login }); r.doneAt = Date.now();
+    r.needs = r.done.filter(x => x.needs).length; r.el.querySelector('.dn').textContent = r.needs ? ' ' + r.needs : ''; renderRepoList();
+    const stc = { OPEN: 'c-running', MERGED: 'c-done', CLOSED: 'c-failed' };
+    r.dv.innerHTML = `<div class="res-h" style="margin-top:0"><b style="color:var(--ink)">${r.done.length} PR${r.done.length === 1 ? '' : 's'}</b><span>by ${esc(me.login)} in ${esc(repo)} · checked ${agoT(r.doneAt)}</span></div>`
+      + (r.done.length ? `<div class="ideas">${r.done.map((x, n) => { const human = x.replies.filter(y => !y.bot), k = x.checks;
+        const rev = { APPROVED: ['ok', 'Approved'], CHANGES_REQUESTED: ['warn', 'Changes requested'], REVIEW_REQUIRED: ['', 'Review required'] }[x.review];
+        const fixable = x.state === 'OPEN' && (x.needs || k.fail || x.review === 'CHANGES_REQUESTED');
+        return `<div class="card idea"><div style="display:flex;gap:8px;align-items:center"><a class="num" href="#" data-u="${esc(x.url)}">#${x.number}</a><h4>${esc(x.title)}</h4><span class="chip ${stc[x.state] || ''}">${x.draft ? 'Draft' : x.state === 'MERGED' ? 'Merged' : x.state === 'OPEN' ? 'Open' : 'Closed'}</span></div>
+        <div class="rs">${rev ? `<span class="pill ${rev[0]}">${rev[1]}</span>` : ''}${k.pass + k.fail + k.pend ? `<span class="pill ${k.fail ? 'warn' : k.pend ? '' : 'ok'}" title="CI checks">${ic(k.fail ? 'alert' : k.pend ? 'clock' : 'check')} ${k.pass} passed${k.fail ? ', ' + k.fail + ' failed' : ''}${k.pend ? ', ' + k.pend + ' running' : ''}</span>` : ''}${x.needs ? `<span class="pill warn">${ic('message')}needs your reply</span>` : ''}<span class="pill">${ic('clock')}${agoT(x.updatedAt)}</span></div>
+        ${human.length ? `<div><div class="k">Replies (${human.length})</div>${human.slice(0, 3).map(y => `<p style="margin:4px 0"><b>@${esc(y.who)}</b> <span class="d">${esc(y.kind)}${y.path ? ' · ' + esc(y.path) : ''} · ${agoT(y.at)}</span><br>${esc(String(y.body).replace(/\s+/g, ' ').slice(0, 220))}</p>`).join('')}</div>` : (x.state === 'OPEN' ? '<div class="d" style="font-size:12px">No replies yet.</div>' : '')}
+        <div class="ract"><button class="g" data-u="${esc(x.url)}">${ic('ext')}View</button>${fixable ? `<button data-fx="${n}">${ic('flame')}Address feedback</button>` : ''}</div></div>`; }).join('')}</div>` : '<div class="empty">No PRs from you in this repo yet. Finished Forge runs show up here.</div>');
+    r.dv.querySelectorAll('[data-u]').forEach(a => a.onclick = (e) => { e.preventDefault(); go(a.dataset.u); });
+    r.dv.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { const x = r.done[+b.dataset.fx];
+      const ex = J.find(q => q.kind === 'feedback' && q.repo === repo && q.number === x.number && !['failed', 'stopped', 'paused', 'done'].includes(q.status));
+      sentBtn(b, ex || addJob({ kind: 'feedback', repo, number: x.number, title: x.title })); });
+  } catch (e) { r.dv.innerHTML = `<div class="e">${esc(msg(e))}</div>`; }
+}
+setInterval(() => Object.keys(R).forEach(r => refreshDone(r, true)), 10 * 60e3); // keep the "needs your reply" badges fresh
 function restoreIdeas(repo, c) {
   const r = R[repo], j = { id: 'j' + (++jid), kind: 'ideas', repo, steps: IDEA_STEPS.map(() => ({ status: 'done' })), log: c.log || '', status: 'review', t0: c.at, t1: c.at, result: c.result, name: `${repo} · ideas` };
   j.view = document.createElement('div'); r.idv.innerHTML = ''; r.idv.append(j.view); JOBS[j.id] = j; r.ideas = j; renderJobView(j);
@@ -314,20 +345,39 @@ function restoreJobs(list) {
   jid = Math.max(jid, ...list.map(o => +String(o.id).slice(1) || 0));
   for (const o of list) {
     const j = { ...o, log: o.log || '', steps: o.steps || [] };
-    if (j.status === 'running' || j.status === 'queued') { // the app was closed mid-run
+    if (j.status === 'running' || j.status === 'queued' || j.status === 'ci') { // the app was closed mid-run
       const i = j.steps.findIndex(s => s?.status === 'run'); if (i >= 0) j.steps[i] = { status: 'fail', detail: 'interrupted' };
       j.status = 'paused'; j.err = 'The app was closed while this was running.'; j.t1 = j.t1 || Date.now();
     }
+    if (j.kind === 'feedback' && j.status === 'review' && j.ck?.applied && !j.ck.pushed) { // an update that stopped at review: re-check and push it automatically
+      if (j.ck.testRun && !j.ck.testRun.ok && (j.ck.testRun.v || 0) < 3) delete j.ck.testRun; // judged by an older, wrong test selection
+      if (!j.ck.testRun || j.ck.testRun.ok) { j.steps = j.steps.slice(0, 3); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: re-running tests and pushing the update ---\n'; }
+    }
+    if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && j.ck.testRun && !j.ck.testRun.ok && (j.ck.testRun.v || 0) < 3) delete j.ck.testRun; // older runner could not find the tests' runner
+    if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && !j.ck.testRun) { j.steps = j.steps.slice(0, 7); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: running tests and opening the PR ---\n'; }
     j.view = document.createElement('div'); j.view.className = 'jobview'; j.view.style.display = 'none'; $('#jobviews').append(j.view);
     JOBS[j.id] = j; J.push(j); renderJobView(j);
   }
   renderBoard(); renderRepoList();
+}
+// after the PR exists: wait for its GitHub checks; the backend re-runs flaky jobs and fixes real failures until green
+async function watchCi(j) {
+  const number = j.kind === 'feedback' ? j.number : +((String(j.prUrl || j.cur?.pr || j.ck?.prUrl || '').match(/\/pull\/(\d+)/) || [])[1]);
+  if (S.auto === false || !number) { j.status = 'done'; return; } // manual mode: you handle CI yourself
+  j.status = 'ci'; renderPane(j); paint(j); renderBoard(); saveJobs();
+  const r = await gc.ci({ repo: j.repo, number, job: j.id, ck: j.ck, cur: { dir: j.cur.dir, branch: j.cur.branch, tests: j.cur.tests }, idx: STEPSOF(j).length - 1, draft: !!j.cur.draft });
+  if (r.green) { j.status = 'done'; j.ciGreen = true; } else { j.status = 'failed'; j.err = 'CI is not green: ' + r.reason; }
+}
+function startCi(j) { // for the manual paths (you opened the PR / pushed the update yourself)
+  watchCi(j).catch(e => { j.err = msg(e); j.status = /Stopped by you/.test(j.err) ? 'paused' : 'failed'; if (j.status === 'paused') j.err = 'You stopped this run.'; })
+    .finally(() => { j.t1 = Date.now(); renderPane(j); paint(j); renderBoard(); pump(); });
 }
 function stopJob(j) {
   if (j.status === 'queued') { j.status = 'paused'; j.err = 'Stopped before it started.'; renderPane(j); paint(j); renderBoard(); saveJobs(); return; }
   gc.stop(j.id); // kills the running AI process; the run ends at the stage it reached
 }
 function resumeJob(j) { // continue at the stage it reached; finished stages are kept
+  if (j.ck?.ci) j.ck.ci = { round: 0, reruns: 0 };
   j.steps = j.steps.map(s => s && (s.status === 'fail' || s.status === 'run') ? undefined : s);
   Object.assign(j, { status: 'queued', err: '', t1: 0 }); j.log += '\n--- resumed ---\n';
   renderPane(j); paint(j); pump();
@@ -341,21 +391,38 @@ async function run(j) {
   j.status = 'running'; j.t0 = Date.now(); j.t1 = 0; renderPane(j); paint(j); renderBoard();
   try {
     if (j.kind === 'ideas') { j.result = await gc.ideas({ repo: j.repo, job: j.id }); j.status = 'review'; const c = { result: j.result, log: j.log.slice(-20000), at: Date.now() }; gc.cacheSet({ repo: j.repo, key: 'ideas', value: c }); (CACHE[j.repo] ||= {}).ideas = c; }
-    else { j.cur = await gc.prepare({ repo: j.repo, number: j.number, idea: j.idea, user: me, force: j.force, job: j.id, ck: j.ck }); j.status = j.cur.stopped ? 'stopped' : 'review'; }
+    else if (j.kind === 'feedback') { j.cur = await gc.feedback({ repo: j.repo, number: j.number, user: me, job: j.id, ck: j.ck, auto: S.auto !== false });
+      if (j.cur.pushed) { j.doneNote = 'Update pushed automatically.'; j.prUrl = (R[j.repo]?.done || []).find(x => x.number === j.number)?.url || ''; await watchCi(j); setTimeout(() => refreshDone(j.repo, true), 4000); }
+      else j.status = 'review'; }
+    else {
+      j.cur = await gc.prepare({ repo: j.repo, number: j.number, idea: j.idea, user: me, force: j.force, job: j.id, ck: j.ck, auto: S.auto !== false });
+      if (j.cur.stopped) j.status = 'stopped';
+      else if (j.cur.pr) { j.prUrl = j.cur.pr; await watchCi(j); setTimeout(() => refreshDone(j.repo, true), 4000); }
+      else j.status = 'review';
+    }
   } catch (e) { j.err = msg(e); j.status = /Stopped by you/.test(j.err) ? 'paused' : 'failed'; if (j.status === 'paused') j.err = 'You stopped this run.'; }
   j.t1 = Date.now(); renderPane(j); paint(j); pump();
 }
 function renderBoard() {
-  $('#fbadge').textContent = J.filter(j => j.status === 'running' || j.status === 'queued').length;
+  $('#fbadge').textContent = J.filter(j => j.status === 'running' || j.status === 'queued' || j.status === 'ci').length;
   if (fRepo && !J.some(j => j.repo === fRepo)) fRepo = null;
-  const repos = [...new Set(J.map(j => j.repo))], L = J.filter(j => !fRepo || j.repo === fRepo);
+  const repos = [...new Set(J.map(j => j.repo))], L0 = J.filter(j => !fRepo || j.repo === fRepo), nSk = L0.filter(j => j.status === 'stopped').length, L = showSk ? L0 : L0.filter(j => j.status !== 'stopped');
   $('#fchips').innerHTML = repos.length > 1 || fRepo ? `<span class="chipb ${fRepo ? '' : 'on'}" data-f="">All <b>${J.length}</b></span>` + repos.map(r => `<span class="chipb ${fRepo === r ? 'on' : ''}" data-f="${esc(r)}">${ic('git-branch')}${esc(r)} <b>${J.filter(j => j.repo === r).length}</b></span>`).join('') : '';
+  if (nSk) $('#fchips').insertAdjacentHTML('beforeend', `<span class="chipb ${showSk ? 'on' : ''}" data-sk>${ic('clock')}Skipped <b>${nSk}</b></span>`);
+  const resumable = (j) => j.status === 'paused' || j.status === 'failed';
+  const res = L0.filter(resumable); [...sel].forEach(id => { if (!JOBS[id] || !resumable(JOBS[id])) sel.delete(id); });
+  $('#ftools').innerHTML = res.length || sel.size ? `<span class="d" style="font-size:12px">${res.length} stopped or failed${fRepo ? ' in ' + esc(fRepo) : ''}</span><button class="g" id="selres">${sel.size === res.length && res.length ? 'Clear selection' : 'Select all'}</button><button id="contsel" ${sel.size ? '' : 'disabled'}>${ic('play')} Continue selected (${sel.size})</button><button id="contall" ${res.length ? '' : 'disabled'}>${ic('play')} Continue all (${res.length})</button>` : '';
+  const go2 = (list) => { list.forEach(j => { if (resumable(j)) resumeJob(j); }); sel.clear(); renderBoard(); };
+  if ($('#selres')) $('#selres').onclick = () => { if (sel.size === res.length) sel.clear(); else res.forEach(j => sel.add(j.id)); renderBoard(); };
+  if ($('#contsel')) $('#contsel').onclick = () => go2([...sel].map(id => JOBS[id]));
+  if ($('#contall')) $('#contall').onclick = () => go2(res);
+  document.querySelectorAll('[data-sk]').forEach(c => c.onclick = () => { showSk = !showSk; renderBoard(); });
   document.querySelectorAll('[data-f]').forEach(c => c.onclick = () => { fRepo = c.dataset.f || null; renderBoard(); });
   $('#tiles').innerHTML = L.length ? `<div class="tiles">${L.map(j => { const ST = STEPSOF(j), q = J.filter(x => x.status === 'queued').reverse().indexOf(j);
-    return `<div class="card tile" data-j="${j.id}"><div class="top"><span class="trepo">${ic('git-branch')}${esc(j.repo)}</span><span class="chip c-${j.status}">${j.status === 'queued' ? (q + 1) + ' in line' : CHIP[j.status]}</span>${j.status === 'running' || j.status === 'queued' ? `<span class="tx run" data-stop="${j.id}" title="Stop">${ic('stop')}</span>` : `<span class="tx" data-rm="${j.id}" title="Remove from Forge">${ic('x')}</span>`}</div>
+    return `<div class="card tile" data-j="${j.id}"><div class="top">${j.status === 'paused' || j.status === 'failed' ? `<input type="checkbox" data-sel="${j.id}" ${sel.has(j.id) ? 'checked' : ''} style="width:16px;height:16px;margin:0;flex:none;accent-color:#8ec6ff" title="Select">` : ''}<span class="trepo">${ic('git-branch')}${esc(j.repo)}</span><span class="chip c-${j.status}">${j.status === 'queued' ? (q + 1) + ' in line' : CHIP[j.status]}</span>${j.status === 'running' || j.status === 'queued' || j.status === 'ci' ? `<span class="tx run" data-stop="${j.id}" title="Stop">${ic('stop')}</span>` : `<span class="tx" data-rm="${j.id}" title="Remove from Forge">${ic('x')}</span>`}</div>
       <div style="font-size:13px;font-weight:600;line-height:1.35;height:36px;overflow:hidden">${esc((j.number ? '#' + j.number + ' ' : '') + (j.title || ''))}</div>
       <div class="segs">${ST.map((n, i) => `<i class="${j.steps[i]?.status || ''}"></i>`).join('')}</div>
-      <div class="ln">${esc(j.status === 'running' ? (j.last || '') : j.status === 'failed' ? j.err : j.status === 'stopped' ? (j.cur?.verdict?.reason || '') : '')}</div>
+      <div class="ln">${esc(j.status === 'running' || j.status === 'ci' ? (j.last || '') : j.status === 'failed' ? j.err : j.status === 'stopped' ? (j.cur?.verdict?.reason || '') : '')}</div>
       <div class="tm">${j.t0 ? mmss((j.t1 || Date.now()) - j.t0) : 'waiting'}</div></div>`; }).join('')}</div>`
     : '<div class="empty">Nothing running. Open a repo, scan it, then send issues here with <b>Work on it</b>. Several can run at once.</div>';
   document.querySelectorAll('[data-stop]').forEach(b => b.onclick = (e) => { e.stopPropagation(); stopJob(JOBS[b.dataset.stop]); });
@@ -365,10 +432,11 @@ function renderBoard() {
     j.view.remove(); delete JOBS[j.id]; J.splice(J.indexOf(j), 1); saveJobs(); renderBoard(); renderRepoList();
   });
   document.querySelectorAll('.tile').forEach(t => t.onclick = () => openJob(J.find(j => j.id === t.dataset.j)));
+  document.querySelectorAll('[data-sel]').forEach(c => { c.onclick = (e) => e.stopPropagation(); c.onchange = () => { c.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel); renderBoard(); }; });
 }
 function showBoard() { $('#board').style.display = 'block'; J.forEach(j => j.view.style.display = 'none'); renderBoard(); }
 function openJob(j) { show('forge'); $('#board').style.display = 'none'; J.forEach(x => x.view.style.display = x === j ? 'block' : 'none'); paint(j); }
-setInterval(() => { Object.values(JOBS).forEach(j => j.status === 'running' && paint(j)); if ($('#p-forge').classList.contains('on') && $('#board').style.display !== 'none') renderBoard(); }, 1000);
+setInterval(() => { Object.values(JOBS).forEach(j => (j.status === 'running' || j.status === 'ci') && paint(j)); if ($('#p-forge').classList.contains('on') && $('#board').style.display !== 'none') renderBoard(); }, 1000);
 
 function renderJobView(j) {
   j.view.innerHTML = `<div class="forge-h">${j.kind === 'ideas' ? '' : `<span class="back">${ic('back')} Forge</span>`}<b><span class="mono">${esc(j.name)}</span></b><span class="d cnt"></span></div>
@@ -389,7 +457,7 @@ function renderPane(j) {
   const p = j.view.querySelector('.pane'); if (!p) return;
   j.view.classList.toggle('clean', j.kind === 'ideas' && j.status === 'review'); // finished ideas: drop the step list, show only the results
   const logPane = (extra = '') => { p.innerHTML = `<h3>Log <span class="d">${j.status === 'running' ? 'live' : j.status}</span></h3>${extra}<pre class="logbox log"></pre>`; p.querySelector('.log').textContent = j.log || ''; };
-  if (j.status === 'queued' || j.status === 'running') {
+  if (j.status === 'queued' || j.status === 'running' || j.status === 'ci') {
     logPane(`<div class="stopbar"><button class="g stop">${ic('stop')} Stop</button></div>`);
     return p.querySelector('.stop').onclick = (e) => { e.target.disabled = true; e.target.textContent = 'Stopping…'; stopJob(j); };
   }
@@ -400,9 +468,17 @@ function renderPane(j) {
     p.querySelector('.resume').onclick = () => resumeJob(j);
     return p.querySelector('.restart').onclick = () => { if (confirm('Start over? Finished steps and the edits so far are discarded.')) restartJob(j); };
   }
+  if (j.status === 'done') {
+    p.innerHTML = `<h3>${j.kind === 'feedback' ? 'Update pushed' : 'PR opened'} <span class="d">${esc(j.repo)}</span></h3><div class="card">${j.prUrl ? `<a href="#" class="pu">${esc(j.prUrl)}</a>` : esc(j.doneNote || 'Done.')}${j.ciGreen ? `<p style="margin:8px 0 0"><span class="pill ok">${ic('check')}all CI checks passed</span></p>` : ''}${j.cur?.draft ? '<p class="w" style="margin:8px 0 0">Opened as a <b>draft</b>: the tests could not run on this machine, so the project\'s CI will run them. Mark it ready for review on GitHub once CI is green.</p>' : ''}<p class="d" style="margin:8px 0 0">Track CI and replies in this repo's <b>Done</b> tab.</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
+    const a = p.querySelector('.pu'); if (a) a.onclick = (e) => { e.preventDefault(); go(j.prUrl); };
+    return;
+  }
   if (j.status === 'stopped') {
     const v = j.cur.verdict;
-    p.innerHTML = `<h3>Not worth fixing <span class="d">${esc(v.verdict)}</span></h3><div class="card"><b>${esc(v.reason)}</b><p class="d">${esc(v.plan || '')}</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details><button class="g force">Work on it anyway</button>`;
+    p.innerHTML = `<h3>Skipped automatically <span class="d">${esc(v.verdict)}</span></h3><div class="card"><b>${esc(v.reason)}</b><p class="d">No safe small slice was found, so this run was closed and its folder removed. Nothing was pushed.</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details><button class="recheck">Look for a smaller slice</button> <button class="g force">Build it anyway (not recommended)</button>`;
+    p.querySelector('.recheck').onclick = () => { // re-triage with the slice-finding logic; keeps setup and issue text
+      if (j.ck) delete j.ck.verdict; Object.assign(j, { status: 'queued', steps: j.steps.slice(0, 4), err: '', force: false }); j.log += '\n--- re-checking for a smaller slice ---\n'; renderPane(j); paint(j); pump();
+    };
     return p.querySelector('.force').onclick = () => { Object.assign(j, { status: 'queued', steps: j.steps.slice(0, 4), force: true, err: '' }); renderPane(j); paint(j); pump(); };
   }
   if (j.kind === 'ideas') {
@@ -423,7 +499,28 @@ function renderPane(j) {
       sentBtn(b, ex || addJob({ kind: 'fix', repo: j.repo, title: x.title, idea: { title: x.title, body: `${x.pitch || x.why}\n\nEvidence: ${x.evidence || ''}\n\nApproach: ${x.change}\n\nImpact: ${x.impact || ''}` } })); });
     return;
   }
+  if (j.kind === 'feedback') return renderFollow(j);
   renderReview(j);
+}
+async function renderFollow(j) {
+  const p = j.view.querySelector('.pane'), c = j.cur, q = (s) => p.querySelector(s);
+  let d; try { d = await gc.diff(c.dir); } catch (e) { p.innerHTML = `<div class="e">The working folder is gone (${esc(c.dir)}).</div><button class="retry">Start over</button>`; return p.querySelector('.retry').onclick = () => restartJob(j); }
+  p.innerHTML = `<h3>Review update <span class="d">${esc(c.branch)} · PR #${j.number}</span></h3>
+    <div class="stats">${c.testsOk ? `<span class="pill ok">${ic('check')}tests passed</span>` : `<span class="pill warn">${ic('alert')}tests did not run or pass</span>`}</div>
+    ${c.autoBlocked ? `<div class="w" style="margin:0 0 10px">${ic('alert')} Auto-push skipped: ${esc(c.autoBlocked)}.</div>` : ''}
+    <pre>${esc(d || '(no changes: the feedback needed no code change, you can just reply)')}</pre>
+    <div class="bar"><input class="tc" value="${esc(c.testCmd || S.testCmd || '')}" placeholder="test command"><button class="g rt">Run tests</button><button class="g rd">Refresh</button></div>
+    <pre class="to" style="display:none"></pre>
+    <h3>Reply to post on the PR <span class="d">edit freely, leave empty for none</span></h3><textarea class="rp" style="min-height:120px">${esc(c.reply || '')}</textarea>
+    <button class="push">${ic('github')} ${d ? 'Commit &amp; push update' : 'Post reply'}</button><div class="res"></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
+  q('.rd').onclick = () => renderFollow(j);
+  q('.rt').onclick = async () => { const x = busy(q('.rt'), 'Running…'); q('.to').style.display = 'block'; q('.to').textContent = await gc.test({ dir: c.dir, cmd: q('.tc').value }); x(); };
+  q('.push').onclick = async () => { try {
+    if (d && !confirm(`Push this update to ${c.branch} (PR #${j.number}) as ${me.login}?`)) return;
+    if (d) await gc.push({ repo: j.repo, number: j.number, dir: c.dir, branch: c.branch, message: 'Address review feedback', reply: q('.rp').value });
+    else if (q('.rp').value.trim()) await gc.push({ repo: j.repo, number: j.number, dir: c.dir, branch: c.branch, message: '', reply: q('.rp').value }).catch(e => { if (!/Nothing staged/.test(msg(e))) throw e; });
+    j.steps[4] = { status: 'done', detail: 'pushed' }; j.ck = { ...(j.ck || {}), pushed: true }; j.status = 'done'; j.prUrl = (R[j.repo]?.done || []).find(x => x.number === j.number)?.url || ''; j.doneNote = 'Update pushed.'; renderPane(j); paint(j); renderBoard(); saveJobs(); if (S.auto !== false) startCi(j); setTimeout(() => refreshDone(j.repo, true), 4000);
+  } catch (e) { q('.res').innerHTML = `<div class="e">${esc(msg(e))}</div>`; } };
 }
 async function renderReview(j) {
   const p = j.view.querySelector('.pane'), c = j.cur, q = (s) => p.querySelector(s);
@@ -432,8 +529,8 @@ async function renderReview(j) {
     return p.querySelector('.retry').onclick = () => { restartJob(j); };
   }
   const tfiles = [...d.matchAll(/^diff --git a\/(\S+)/gm)].map(m => m[1]).filter(f => /(^|\/)(tests?|spec|__tests__)\/|[._-](test|spec)\.|Test\.(php|java|cs)$/i.test(f));
-  p.innerHTML = `<h3>Review <span class="d">${esc(c.branch)} · ${esc(c.dir)}</span></h3><div class="stats">${tfiles.length ? `<span class="pill ok">${ic('check')}${tfiles.length} test file(s): ${esc(tfiles.map(f => f.split('/').pop()).join(', '))}</span>` : `<span class="pill warn">${ic('alert')}No test files in this diff</span>`}</div><pre>${esc(d || '(no changes)')}</pre>
-    <div class="bar"><input class="tc" placeholder="test command, e.g. composer test" value="${esc(S.testCmd || '')}"><button class="g rt">Run tests</button><button class="g rd">Refresh</button><button class="dr">Draft PR text</button></div>
+  p.innerHTML = `<h3>Review <span class="d">${esc(c.branch)} · ${esc(c.dir)}</span></h3><div class="stats">${c.testsOk === true ? `<span class="pill ok">${ic('check')}tests passed</span>` : c.testsOk === false ? `<span class="pill warn">${ic('alert')}tests did not run or pass</span>` : ''}${tfiles.length ? `<span class="pill ok">${ic('check')}${tfiles.length} test file(s): ${esc(tfiles.map(f => f.split('/').pop()).join(', '))}</span>` : `<span class="pill warn">${ic('alert')}No test files in this diff</span>`}</div>${c.autoBlocked ? `<div class="w" style="margin:0 0 10px">${ic('alert')} Auto-open skipped: ${esc(c.autoBlocked)}. Review it and open the PR yourself.</div>` : ''}<pre>${esc(d || '(no changes)')}</pre>
+    <div class="bar"><input class="tc" placeholder="test command, e.g. composer test" value="${esc(c.testCmd || S.testCmd || '')}"><button class="g rt">Run tests</button><button class="g rd">Refresh</button><button class="dr">Draft PR text</button></div>
     <pre class="to" style="display:none"></pre><div class="pr"></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
   const fail = (el, e) => el.innerHTML = `<div class="e">${esc(msg(e))}</div>`;
   q('.rd').onclick = () => renderReview(j);
@@ -445,7 +542,8 @@ async function renderReview(j) {
       if (!tfiles.length && !confirm('This change has NO unit tests. Maintainers usually expect them. Open the PR anyway?')) return;
       if (!confirm(`Push ${c.branch} to ${c.direct ? j.repo + ' (direct, you have write access)' : 'your fork'} and open a PR to ${j.repo} as ${me.login}?`)) return;
       const url = await gc.ship({ repo: j.repo, dir: c.dir, branch: c.branch, def: c.def, direct: c.direct, title: q('.pt').value, body: q('.pb').value, user: me });
-      j.status = 'done'; j.steps[7] = { status: 'done', detail: 'PR opened' }; j.prUrl = url; paint(j); renderBoard(); saveJobs();
+      j.steps[8] = { status: 'done', detail: 'PR opened' }; j.prUrl = url; j.ck = { ...(j.ck || {}), prUrl: url }; j.status = 'done'; paint(j); renderBoard(); saveJobs();
+      if (S.auto !== false) startCi(j);
       q('.res').innerHTML = `Opened: <a href="#" class="pu">${esc(url)}</a>`; q('.pu').onclick = (e) => { e.preventDefault(); go(url); };
     } catch (e) { fail(q('.res'), e); } };
   } catch (e) { fail(q('.pr'), e); } };

@@ -17,12 +17,24 @@ const withLock = (k, fn) => { const p = (locks[k] || Promise.resolve()).then(fn)
 const dirOf = (repo) => path.join(WORK, repo.replace('/', '__'));
 
 // ---- brain: logged-in `claude` CLI. Read-only mode for ideas/drafts; edit mode (files only, no Bash => cannot commit) for fixes ----
+const DELETE_NOTE = '\n\nYou cannot delete or move files. If a file must be REMOVED (for example after moving or renaming it), end your answer with one line per file: "DELETE: path/relative/to/repo/root". Only delete files that belong to this change.';
+function applyDeletes(dir, text, log) {
+  const root = path.resolve(dir); let n = 0;
+  for (const m of String(text).matchAll(/^DELETE:\s*(.+?)\s*$/gm)) {
+    if (n >= 20) break;
+    const rel = m[1].replace(/^`|`$/g, ''), abs = path.resolve(root, rel);
+    if (!abs.startsWith(root + path.sep) || /(^|\/)\.git(\/|$)/.test(path.relative(root, abs)) || !fs.existsSync(abs)) continue;
+    try { fs.rmSync(abs, { recursive: false, force: true }); n++; log?.(`Deleted ${rel}`); } catch {}
+  }
+  return n;
+}
 const READ_TOOLS = 'Read,Glob,Grep,WebFetch'; // WebFetch: public docs sites linked from the README (e.g. laravel.com/docs)
 const short = (v) => String(v || '').replace(os.homedir(), '~').replace(WORK, '').slice(0, 110);
 const procs = {}, aborted = new Set(); // running claude children per job, and jobs the user stopped
 const chk = (job) => { if (aborted.has(job)) throw new Error('Stopped by you'); };
 function claude(prompt, { cwd = os.tmpdir(), edit = false, read = false, onLog = () => {}, job } = {}) {
   const tools = edit ? 'Read,Edit,Write,Glob,Grep,WebFetch' : read ? READ_TOOLS : '';
+  if (edit) prompt += DELETE_NOTE;
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--setting-sources', '', '--no-session-persistence', '--model', 'opus',
     ...(edit ? ['--permission-mode', 'acceptEdits'] : []), ...(tools ? ['--allowedTools', tools] : []), '--tools', tools];
   return new Promise((res, rej) => {
@@ -41,7 +53,7 @@ function claude(prompt, { cwd = os.tmpdir(), edit = false, read = false, onLog =
     });
     p.stderr.on('data', d => err += d);
     p.on('error', rej);
-    p.on('close', c => { procs[job]?.delete(p); return aborted.has(job) ? rej(new Error('Stopped by you')) : failed ? rej(new Error(failed)) : c && !final ? rej(new Error(err.trim() || `claude exited ${c}`)) : res(final.trim()); });
+    p.on('close', c => { procs[job]?.delete(p); if (edit && !failed && !aborted.has(job)) applyDeletes(cwd, final, onLog); return aborted.has(job) ? rej(new Error('Stopped by you')) : failed ? rej(new Error(failed)) : c && !final ? rej(new Error(err.trim() || `claude exited ${c}`)) : res(final.trim()); });
     p.stdin.end(prompt);
   });
 }
@@ -137,7 +149,7 @@ ${meta}\nOpen issues: ${issues}`, { cwd: dir, read: true, onLog: log, job });
 });
 
 // ---- prepare a clone: fork, branch off upstream, set the user's identity locally, hide AI tooling files ----
-ipcMain.handle('prepare', async (e, { repo, number, idea, user, force, job, ck: saved }) => {
+ipcMain.handle('prepare', async (e, { repo, number, idea, user, force, job, ck: saved, auto }) => {
   // Forge pipeline. Every finished stage is checkpointed (`ck`, sent to the UI and saved), so a stopped or interrupted run resumes at the stage it reached.
   const step = (i, status, detail = '') => e.sender.send('step', { job, i, status, detail });
   const log = (t) => e.sender.send('log', { job, t: t + '\n' });
@@ -209,15 +221,28 @@ Read the issue and thread below, then INVESTIGATE THE CODE with your tools. Deci
 - fixable: can it be fixed with a small, safe change that a newcomer can finish? Or is it a big design decision, needs maintainer sign-off, or touches security (never fix security issues publicly)?
 - maintainers: did a maintainer decline it, ask for discussion first, or say they will handle it?
 Be skeptical, cite file paths. Reply with a short analysis, then as the LAST line only JSON:
-{"verdict":"fix"|"skip"|"unclear","real":true|false,"reason":"one sentence","plan":"files and change you would make, or empty"}
+If the verdict would be "skip" only because the proposal is TOO BIG (new public API, cross-cutting redesign, needs maintainer design sign-off), also look for a SMALL FIRST SLICE: one focused, self-contained change (no new public API, no redesign, touches a few files, useful on its own, and consistent with what maintainers would welcome). If such a slice exists put it in "slice"; otherwise null. Never offer a slice for: security issues, things already fixed or by design, duplicates, or anything a maintainer declined.
+{"verdict":"fix"|"skip"|"unclear","real":true|false,"reason":"one sentence","plan":"files and change you would make, or empty","slice":{"title":"short imperative title","plan":"exactly what the small slice changes, which files"} or null}
 
 TITLE: ${issue.title}\nSTATE: ${issue.state}\nLABELS: ${issue.labels.map(l => l.name).join(', ')}\n\n${issue.body}\n\nTHREAD:\n${thread}`, { cwd: dir, read: true, onLog: log, job });
       let vv; try { vv = JSON.parse(raw.slice(raw.lastIndexOf('{'))); } catch { vv = { verdict: 'unclear', reason: 'could not parse the triage answer', plan: '' }; }
       log(`Verdict: ${vv.verdict.toUpperCase()}: ${vv.reason}`); save({ verdict: vv });
     }
     const v = ck.verdict;
-    if (v.verdict !== 'fix' && !force) { step(4, 'done', v.verdict); return { dir, branch, def, direct, issue, verdict: v, stopped: true }; }
-    step(4, 'done', v.verdict === 'fix' ? 'real & fixable' : v.verdict + ' (forced)'); chk(job);
+    let task = issue; // what actually gets built
+    if (v.verdict !== 'fix' && !force) {
+      if (v.slice?.title && v.slice?.plan) {
+        log(`Too big as proposed (${v.reason}). Narrowing to a small first slice: ${v.slice.title}`);
+        task = { ...issue, title: v.slice.title, body: `${v.slice.plan}\n\nBackground, NOT in scope (the larger original proposal): ${issue.title}` };
+        step(4, 'done', 'narrowed to a small slice');
+      } else {
+        // nothing sensible to do here: skip automatically and clean up the folder and branch
+        log(`Skipping automatically: ${v.reason}`);
+        await withLock(repo, async () => { await git(base, 'worktree', 'remove', '--force', dir).catch(() => {}); await git(base, 'branch', '-D', branch).catch(() => {}); });
+        step(4, 'done', 'skipped'); return { dir, branch, def, direct, issue, verdict: v, stopped: true, autoSkipped: true };
+      }
+    } else step(4, 'done', v.verdict === 'fix' ? 'real & fixable' : v.verdict + ' (forced)');
+    chk(job);
 
     // step 5: the change itself
     if (!ck.fixed) {
@@ -226,7 +251,7 @@ TITLE: ${issue.title}\nSTATE: ${issue.state}\nLABELS: ${issue.labels.map(l => l.
       save({ fixStarted: true });
       const out = await claude(DOCS_RULE + `${idea ? 'Implement this contribution idea' : 'Fix this GitHub issue'} in the repository in the current directory. Make the smallest correct change, follow the repo's existing style
 and any CONTRIBUTING guidance. Edit files only; do not run git. Do not add comments or text mentioning AI tools. A separate step writes the unit tests, so focus on the source change.
-A prior triage found: ${v.reason}\nPlan: ${v.plan}\n\n${idea ? 'Idea' : 'Issue #' + number}: ${issue.title}\n\n${issue.body}${resumeNote}`, { cwd: dir, edit: true, onLog: log, job });
+${task !== issue ? 'IMPORTANT: this is deliberately a SMALL first slice of a bigger idea. Implement ONLY the slice below, nothing from the larger proposal.\n' : ''}A prior triage found: ${v.reason}\nPlan: ${task !== issue ? v.slice.plan : v.plan}\n\n${idea ? 'Idea' : 'Issue #' + number}: ${task.title}\n\n${task.body}${resumeNote}`, { cwd: dir, edit: true, onLog: log, job });
       log(out); save({ fixed: true });
     }
     step(5, 'done', 'files edited'); chk(job);
@@ -251,9 +276,36 @@ DIFF:\n${patch}`, { cwd: dir, edit: true, onLog: log, job });
       save({ tested: true, tests: files.filter(f => /(^|\/)(tests?|spec|__tests__)\/|[._-](test|spec)\.|Test\.(php|java|cs)$/i.test(f)) });
     }
     const tests = ck.tests || [];
-    step(6, tests.length ? 'done' : 'fail', tests.length ? `${tests.length} test file(s)` : 'no tests written');
-    step(i = 7, 'run', 'your review');
-    return { dir, branch, def, direct, issue, verdict: v, tests };
+    step(6, tests.length ? 'done' : 'fail', tests.length ? `${tests.length} test file(s)` : 'no tests written'); chk(job);
+
+    // step 7: run the tests (installs dependencies, up to 2 AI repair rounds if they fail)
+    if (!ck.testRun) {
+      step(i = 7, 'run');
+      const tr0 = await verifyTests({ dir, files: tests, job, log, step, idx: 7 });
+      save({ testRun: { v: 3, ok: tr0.ok, env: tr0.env, cmd: tr0.cmd, reason: tr0.reason } });
+      if (!tr0.ok) log(`Tests did not pass: ${tr0.reason}`);
+    }
+    const tr = ck.testRun;
+    step(7, tr.ok ? 'done' : 'fail', tr.ok ? 'passed' : tr.reason); chk(job);
+
+    // step 8: with auto on and everything green, commit and open the PR. Any guard that trips falls back to your review.
+    const res = { dir, branch, def, direct, issue: task, verdict: v, tests, testCmd: tr.cmd, testsOk: tr.ok };
+    if (ck.prUrl) { step(8, 'done', 'PR opened'); return { ...res, pr: ck.prUrl }; }
+    const asDraft = !tr.ok && tr.env; // tests could not run on this machine: open as a draft and let the project's CI run them
+    if (auto && tests.length && (tr.ok || asDraft)) {
+      step(i = 8, 'run', asDraft ? 'opening draft PR…' : 'opening PR…'); log(asDraft ? `Tests could not run here (${tr.reason}). Opening a DRAFT PR so the project's CI runs them.` : 'Tests passed: drafting the description and opening the PR…');
+      try {
+        const dr = await makeDraft({ dir, number, issue: task, tests, testCmd: tr.cmd, job });
+        const url = await shipPr({ repo, dir, branch, def, direct, title: dr.title, body: dr.body, user, draft: asDraft });
+        save({ prUrl: url }); log('PR opened: ' + url); step(8, 'done', asDraft ? 'draft PR opened' : 'PR opened');
+        return { ...res, pr: url, draft: asDraft };
+      } catch (err) {
+        if (/Stopped by you/.test(err.message)) throw err;
+        log('Auto-open blocked: ' + err.message); step(8, 'run', 'your review'); return { ...res, autoBlocked: err.message };
+      }
+    }
+    step(i = 8, 'run', 'your review');
+    return { ...res, autoBlocked: !auto ? null : tr.ok ? 'the change has no test files' : `tests did not pass (${tr.reason})` };
   } catch (err) { step(i, 'fail', err.message.slice(0, 60)); log((/Stopped by you/.test(err.message) ? 'STOPPED: ' : 'FAILED: ') + err.message); throw err; }
 });
 
@@ -262,7 +314,7 @@ ipcMain.handle('test', (e, { dir, cmd }) => new Promise(res => execFile('bash', 
   (err, out, se) => res(`${err ? 'FAILED' : 'PASSED'}\n${(out + se).slice(-4000)}`))));
 
 // ---- draft title + body from the diff and the repo's PR template; the user edits it before shipping ----
-ipcMain.handle('draft', async (e, { dir, number, issue, tests = [], testCmd }) => {
+async function makeDraft({ dir, number, issue, tests = [], testCmd, job }) {
   // find the repo's PR template (any common location / casing)
   const cands = ['.github/PULL_REQUEST_TEMPLATE.md', '.github/pull_request_template.md', 'PULL_REQUEST_TEMPLATE.md', 'pull_request_template.md', 'docs/PULL_REQUEST_TEMPLATE.md'];
   const tf = cands.map(c => path.join(dir, c)).find(f => fs.existsSync(f));
@@ -281,15 +333,17 @@ The body must cover, in this order (skip a section only if truly irrelevant):
 ${tpl ? `\nThe repo has a PR template. Keep ALL its headings and checkboxes, fill every section with the content above, and leave checkboxes you cannot honestly tick unticked:\n---\n${tpl}\n---\n` : ''}
 Never mention AI tools, assistants, or generated code anywhere.
 
-${issue ? `CONTEXT (${number ? 'issue #' + number : 'idea'}): ${issue.title}\n${String(issue.body || '').slice(0, 4000)}\n\n` : ''}DIFF:\n${(await git(dir, 'diff')).slice(0, 40000)}`, { cwd: dir, read: true });
+${issue ? `CONTEXT (${number ? 'issue #' + number : 'idea'}): ${issue.title}\n${String(issue.body || '').slice(0, 4000)}\n\n` : ''}DIFF:\n${(await git(dir, 'diff')).slice(0, 40000)}`, { cwd: dir, read: true, job });
   const [title, ...rest] = out.trim().split('\n'); return { title: title.replace(/^#+\s*/, ''), body: rest.join('\n').trim() };
-});
+}
+ipcMain.handle('draft', (e, a) => makeDraft(a));
 
 
 // ---- ship: guards, then plain git + gh. No model is involved in commit/push/PR, so nothing can add a trailer ----
-ipcMain.handle('ship', async (e, { repo, dir, branch, def, direct, title, body, user }) => {
-  const prs = readJson('prs.json', {});
-  if (!G.rateOk(prs[repo])) throw new Error(`Rate cap: already opened a PR to ${repo} in the last 24h.`);
+async function shipPr({ repo, dir, branch, def, direct, title, body, user, draft }) {
+  const prs = readJson('prs.json', {}), cap = readJson('settings.json', {}).prCap ?? 3;
+  const times = [].concat(prs[repo] || []); // older files stored a single timestamp
+  if (!G.rateOk(times, cap)) throw new Error(`Rate cap: ${times.filter(t => Date.now() - t < 864e5).length} PR(s) already opened to ${repo} in the last 24h (limit ${cap}; change it in Forge).`);
   await git(dir, 'add', '-A');
   const names = await git(dir, 'diff', '--cached', '--name-only');
   if (!names.trim()) throw new Error('Nothing staged: the AI made no changes.');
@@ -300,9 +354,275 @@ ipcMain.handle('ship', async (e, { repo, dir, branch, def, direct, title, body, 
   const msg = await git(dir, 'log', '-1', '--format=%B%n%an <%ae>');
   const hit2 = G.findTrace(msg); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
   await git(dir, 'push', '-u', 'origin', branch, '--force-with-lease');
-  const url = (await gh('pr', 'create', '-R', repo, '--head', direct ? branch : `${user.login}:${branch}`, '--base', def, '--title', title, '--body', body)).trim();
-  prs[repo] = Date.now(); writeJson('prs.json', prs);
+  const url = (await gh('pr', 'create', '-R', repo, '--head', direct ? branch : `${user.login}:${branch}`, '--base', def, '--title', title, '--body', body, ...(draft ? ['--draft'] : []))).trim();
+  prs[repo] = [...times.filter(t => Date.now() - t < 864e5), Date.now()]; writeJson('prs.json', prs);
   return url;
+}
+ipcMain.handle('ship', (e, a) => shipPr(a));
+
+
+// ---- running tests: detect the runner, install deps, run the changed tests, let the AI repair real failures (max 2x) ----
+function sh(cmd, cwd, log, job, timeout) {
+  return new Promise((res) => {
+    const p = spawn('bash', ['-c', cmd], { cwd }); let out = '';
+    if (job) (procs[job] ||= new Set()).add(p);
+    const t = setTimeout(() => p.kill(), timeout);
+    const feed = (d) => { const x = String(d); out = (out + x).slice(-60000); x.split('\n').filter(l => l.trim()).forEach(l => log(l.slice(0, 300))); };
+    p.stdout.on('data', feed); p.stderr.on('data', feed);
+    p.on('close', (code) => { clearTimeout(t); procs[job]?.delete(p); res({ code: aborted.has(job) ? 130 : code, out }); });
+    p.on('error', (e) => { clearTimeout(t); res({ code: 127, out: String(e) }); });
+  });
+}
+function detectTests(dir, files) {
+  const has = (f) => fs.existsSync(path.join(dir, f)), q = (a) => a.map(f => `'${f.replace(/'/g, "'\\''")}'`).join(' ');
+  if (has('composer.json')) return { install: has('vendor/autoload.php') ? '' : 'composer install --no-interaction --prefer-dist --no-progress',
+    cmd: ['pest', 'phpunit', 'simple-phpunit'].map((b, n) => `${n ? 'elif' : 'if'} [ -x vendor/bin/${b} ]; then vendor/bin/${b} ${q(files)}`).join('; ') + '; else echo "no PHP test runner in vendor/bin" >&2; exit 127; fi' };
+  if (has('package.json')) {
+    let pj = {}; try { pj = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch {}
+    const deps = { ...pj.dependencies, ...pj.devDependencies }, pm = has('pnpm-lock.yaml') ? 'pnpm' : has('yarn.lock') ? 'yarn' : 'npm';
+    return { install: has('node_modules') ? '' : pm === 'npm' ? 'npm ci --no-audit --no-fund || npm install --no-audit --no-fund' : `${pm} install`,
+      cmd: deps.vitest ? `npx vitest run ${q(files)}` : deps.jest ? `npx jest ${q(files)}` : pj.scripts?.test ? 'npm test' : null };
+  }
+  if (['pyproject.toml', 'pytest.ini', 'setup.cfg', 'tox.ini', 'requirements.txt'].some(has)) return { install: '', cmd: `python3 -m pytest -q ${q(files)}` };
+  return null;
+}
+const TEST_RE = /(^|\/)(tests?|spec|__tests__)\/|[._-](test|spec)\.|Test\.(php|java|cs)$/i;
+const RUNNABLE = (f) => TEST_RE.test(f) && (!/\.php$/i.test(f) || /Test\.php$/.test(f)); // PHPUnit only runs *Test.php; scripts and helpers under tests/ are not tests
+async function verifyTests({ dir, files, job, log, step, idx }) {
+  if (!files.length) return { ok: false, reason: 'no test files were written' };
+  files = [...new Set(files)].filter(RUNNABLE);
+  if (!files.length) return { ok: false, env: true, reason: 'no runnable test files in the change (the project CI will check it)' };
+  const d = detectTests(dir, files);
+  if (!d || !d.cmd) return { ok: false, env: true, reason: 'no test runner detected for this repo' };
+  if (d.install) {
+    step(idx, 'run', 'installing dependencies…'); log('$ ' + d.install);
+    const r = await sh(d.install, dir, log, job, 20 * 60e3); chk(job);
+    if (r.code) return { ok: false, env: true, cmd: d.cmd, reason: 'dependency install failed on this machine' };
+  }
+  for (let n = 0; ; n++) {
+    step(idx, 'run', n ? `re-running (${n}/2)…` : 'running tests…'); log('$ ' + d.cmd);
+    const r = await sh(d.cmd, dir, log, job, 15 * 60e3); chk(job);
+    if (!r.code) return { ok: true, cmd: d.cmd };
+    const envErr = /command not found|vendor\/bin\/\S+: No such file|no PHP test runner|is missing from your system|Cannot find module|No module named|Failed opening required|ext-\S+ .*missing/i.test(r.out);
+    if (envErr) return { ok: false, env: true, cmd: d.cmd, reason: 'environment problem running the tests (missing tool or extension)' };
+    if (n >= 2) return { ok: false, cmd: d.cmd, reason: 'tests still fail after 2 repair attempts' };
+    step(idx, 'run', `fixing failures (${n + 1}/2)…`); log('Tests failed, asking for a fix…');
+    await claude(`Unit tests for a change in the repository in the current directory FAIL. Output (tail):\n${r.out.slice(-10000)}
+Work out whether the TEST or the SOURCE change is wrong and fix the real cause. Never delete, skip, or weaken tests or assertions just to make them pass. Edit files only; do not run git. No text mentioning AI tools. End with one line saying what you fixed.`, { cwd: dir, edit: true, onLog: log, job });
+    chk(job);
+    await git(dir, 'add', '-N', '.');
+    const names = (await git(dir, 'diff', '--name-only')).split('\n').filter(f => TEST_RE.test(f)); if (names.length) files = names;
+  }
+}
+
+// ---- replies on my PRs: comments, reviews, inline comments, CI checks ----
+const isBot = (n) => /\[bot\]$|-bot$|^github-actions$|^codecov/i.test(n || '');
+async function collectReplies(repo, number, login) {
+  const pr = JSON.parse(await gh('pr', 'view', String(number), '-R', repo, '--json', 'comments,reviews,state'));
+  const inline = JSON.parse(await gh('api', `repos/${repo}/pulls/${number}/comments?per_page=50`).catch(() => '[]'));
+  const all = [
+    ...pr.comments.map(c => ({ who: c.author?.login, body: c.body, at: c.createdAt, kind: 'comment' })),
+    ...pr.reviews.map(r => ({ who: r.author?.login, body: r.body, at: r.submittedAt, kind: 'review ' + String(r.state).toLowerCase().replace('_', ' ') })),
+    ...inline.map(c => ({ who: c.user?.login, body: c.body, at: c.created_at, kind: 'inline', path: c.path })),
+  ].filter(x => x.who && (x.body || '').trim() || x.kind?.startsWith('review '));
+  const mine = all.filter(x => x.who === login).map(x => +new Date(x.at)).sort((a, b) => b - a)[0] || 0;
+  const others = all.filter(x => x.who !== login).map(x => ({ ...x, bot: isBot(x.who) })).sort((a, b) => new Date(b.at) - new Date(a.at));
+  return { replies: others, needs: others.some(x => !x.bot && +new Date(x.at) > mine) };
+}
+ipcMain.handle('prs', async (e, { repo, login }) => {
+  const list = JSON.parse(await gh('pr', 'list', '-R', repo, '--author', login, '--state', 'all', '-L', '20', '--json',
+    'number,title,url,state,isDraft,mergedAt,closedAt,updatedAt,reviewDecision,statusCheckRollup,headRefName,isCrossRepository'));
+  return Promise.all(list.map(async pr => {
+    const k = { pass: 0, fail: 0, pend: 0 };
+    for (const c of pr.statusCheckRollup || []) {
+      const v = String(c.conclusion || c.state || '').toUpperCase(), done = !c.status || c.status === 'COMPLETED';
+      if (!done || v === 'PENDING' || v === '') k.pend++; else if (['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(v)) k.pass++; else k.fail++;
+    }
+    const r = pr.state === 'OPEN' ? await collectReplies(repo, pr.number, login).catch(() => ({ replies: [], needs: false })) : { replies: [], needs: false };
+    return { number: pr.number, title: pr.title, url: pr.url, state: pr.mergedAt ? 'MERGED' : pr.state, draft: pr.isDraft, updatedAt: pr.updatedAt,
+      review: pr.reviewDecision, checks: k, branch: pr.headRefName, cross: pr.isCrossRepository, replies: r.replies.slice(0, 15), needs: r.needs };
+  }));
+});
+
+// ---- address feedback on an open PR: same branch, apply changes, run tests, you review and push ----
+ipcMain.handle('feedback', async (e, { repo, number, user, job, ck: saved, auto }) => {
+  const step = (i, status, detail = '') => e.sender.send('step', { job, i, status, detail });
+  const log = (t) => e.sender.send('log', { job, t: t + '\n' });
+  const ck = saved || {}, save = (p) => { Object.assign(ck, p); e.sender.send('ckpt', { job, ck }); };
+  aborted.delete(job); let i = 0;
+  try {
+    if (!ck.fb) {
+      step(i = 0, 'run'); log(`Reading the PR #${number} conversation and checks…`);
+      const pr = JSON.parse(await gh('pr', 'view', String(number), '-R', repo, '--json', 'title,body,headRefName,isCrossRepository,statusCheckRollup'));
+      const { replies } = await collectReplies(repo, number, user.login);
+      const human = replies.filter(r => !r.bot).slice(0, 20);
+      const bad = (pr.statusCheckRollup || []).filter(c => ['FAILURE', 'TIMED_OUT', 'CANCELLED'].includes(String(c.conclusion).toUpperCase()) || String(c.state).toUpperCase() === 'FAILURE');
+      const failing = bad.map(c => c.name || c.context);
+      // the actual failure output of the failing CI runs (not just their names)
+      const runIds = [...new Set(bad.map(c => (String(c.detailsUrl || '').match(/\/actions\/runs\/(\d+)/) || [])[1]).filter(Boolean))].slice(0, 3);
+      let ci = ''; for (const id of runIds) { log(`Fetching the failure log of CI run ${id}…`); ci += `\n--- failed CI run ${id} ---\n` + (await gh('run', 'view', id, '-R', repo, '--log-failed').catch(() => '')).slice(-5000); }
+      const text = human.map(r => `@${r.who} (${r.kind}${r.path ? ', ' + r.path : ''}): ${String(r.body).slice(0, 1500)}`).join('\n---\n');
+      log(`${human.length} human comment(s), ${failing.length} failing check(s).`);
+      save({ fb: { title: pr.title, branch: pr.headRefName, cross: pr.isCrossRepository, text, failing, ci } });
+    }
+    const fb = ck.fb; step(0, 'done', `${fb.text ? 'feedback read' : 'no comments'}${fb.failing.length ? ', ' + fb.failing.length + ' failing' : ''}`); chk(job);
+
+    const base = dirOf(repo), dir = `${base}--${fb.branch}`;
+    if (!ck.prepared || !fs.existsSync(dir)) {
+      step(i = 1, 'run'); log(`Getting branch ${fb.branch}…`);
+      await withLock(repo, async () => {
+        if (!fs.existsSync(base)) await run('git', ['clone', fb.cross ? `https://github.com/${user.login}/${repo.split('/')[1]}.git` : `https://github.com/${repo}.git`, base]);
+        await git(base, 'fetch', 'origin', fb.branch);
+        if (fs.existsSync(dir)) await git(dir, 'reset', '--hard', `origin/${fb.branch}`);
+        else { await git(base, 'worktree', 'prune'); await git(base, 'worktree', 'add', '-B', fb.branch, dir, `origin/${fb.branch}`); }
+        await git(base, 'config', 'user.name', user.name || user.login);
+        await git(base, 'config', 'user.email', `${user.id}+${user.login}@users.noreply.github.com`);
+      });
+      save({ prepared: true });
+    } else log('Resuming: the branch folder is still there.');
+    step(1, 'done', fb.branch); chk(job);
+
+    if (!ck.applied) {
+      step(i = 2, 'run', 'AI is addressing it…'); log('Applying the feedback…');
+      const out = await claude(DOCS_RULE + `This is an open pull request ("${fb.title}") on ${repo}; its branch is checked out in the current directory. Maintainers and/or CI gave feedback. Address it:
+- Make the requested changes with minimal, focused edits that follow the repo's style. Update or add tests when behaviour changes.
+- If a comment is only a question or you disagree with it, do NOT change code for it; explain in the reply instead.
+- If a CI check failed (${fb.failing.join(', ') || 'none'}), find the cause in the code and fix it.
+- Edit files only; do not run git. No text mentioning AI tools.
+${ck.appliedStarted ? 'An earlier attempt was interrupted; some edits may exist already. Check and complete without duplicating.\n' : ''}
+End with the marker line "REPLY:" followed by a short first-person comment to post on the PR (what you changed, answers to questions, anything you left as is and why). No emojis.
+
+FEEDBACK:\n${fb.text || '(no human comments; focus on the failing checks)'}\n\nFAILED CI OUTPUT (tail):${fb.ci || ' (not available)'}`, { cwd: dir, edit: true, onLog: log, job });
+      const k = out.lastIndexOf('REPLY:');
+      save({ applied: true, reply: (k >= 0 ? out.slice(k + 6) : '').trim() });
+    }
+    step(2, 'done', 'changes applied'); chk(job);
+
+    if (!ck.testRun) {
+      step(i = 3, 'run');
+      await git(dir, 'add', '-N', '.');
+      const names = (await git(dir, 'diff', '--name-only')).split('\n').filter(f => TEST_RE.test(f));
+      const prFiles = (await gh('pr', 'diff', String(number), '-R', repo, '--name-only').catch(() => '')).split('\n').filter(f => TEST_RE.test(f));
+      const tr = await verifyTests({ dir, files: [...names, ...prFiles], job, log, step, idx: 3 });
+      save({ testRun: { v: 3, ok: tr.ok, cmd: tr.cmd, reason: tr.reason } });
+    }
+    const tr = ck.testRun; step(3, tr.ok ? 'done' : 'fail', tr.ok ? 'passed' : tr.reason); chk(job);
+    const res = { dir, branch: fb.branch, direct: !fb.cross, reply: ck.reply, testCmd: tr.cmd, testsOk: tr.ok, issue: { title: fb.title, body: fb.text }, followup: true };
+    if (ck.pushed) { step(4, 'done', 'update pushed'); return { ...res, pushed: true }; }
+    const changed = (await git(dir, 'status', '--porcelain')).trim();
+    // auto: push the update (and post the reply) when the tests passed, or could not run here and CI will check. Pure replies with no code change stay for your review.
+    if (auto && changed && (tr.ok || tr.env)) {
+      step(i = 4, 'run', 'pushing update…'); log(tr.ok ? 'Tests passed: committing and pushing the update…' : `Tests could not run here (${tr.reason}): pushing so CI checks it…`);
+      try {
+        await pushUpdate({ repo, number, dir, branch: fb.branch, message: 'Address review feedback', reply: ck.reply });
+        save({ pushed: true }); log('Update pushed to ' + fb.branch + (ck.reply ? ' and the reply was posted.' : '.')); step(4, 'done', 'update pushed');
+        return { ...res, pushed: true };
+      } catch (err) {
+        if (/Stopped by you/.test(err.message)) throw err;
+        log('Auto-push blocked: ' + err.message); step(4, 'run', 'your review'); return { ...res, autoBlocked: err.message };
+      }
+    }
+    step(i = 4, 'run', 'your review');
+    return { ...res, autoBlocked: !auto ? null : !changed ? 'the feedback needed no code change, so nothing to push: review the reply and post it yourself' : `tests did not pass (${tr.reason})` };
+  } catch (err) { step(i, 'fail', err.message.slice(0, 60)); log((/Stopped by you/.test(err.message) ? 'STOPPED: ' : 'FAILED: ') + err.message); throw err; }
+});
+async function pushUpdate({ repo, number, dir, branch, message, reply }) {
+  await git(dir, 'add', '-A');
+  const names = await git(dir, 'diff', '--cached', '--name-only');
+  if (!names.trim()) throw new Error('Nothing staged: there are no changes to push.');
+  const hit = G.findTrace(message, reply, names, G.addedLines(await git(dir, 'diff', '--cached')));
+  if (hit) throw new Error(`Blocked, AI/co-author trace found: "${hit}"`);
+  await git(dir, 'commit', '-m', message);
+  const hit2 = G.findTrace(await git(dir, 'log', '-1', '--format=%B%n%an <%ae>')); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
+  await git(dir, 'push', 'origin', branch);
+  if ((reply || '').trim()) await gh('pr', 'comment', String(number), '-R', repo, '--body', reply);
+  return true;
+}
+ipcMain.handle('push', (e, a) => pushUpdate(a));
+
+// ---- CI watch: wait for the PR's GitHub checks; green = done, flaky = re-run, real failure = fix, push and wait again ----
+const sleepJob = async (job, ms) => { for (let t = 0; t < ms; t += 4000) { chk(job); await new Promise(r => setTimeout(r, Math.min(4000, ms - t))); } chk(job); };
+const FLAKY = /Bus error|Segmentation fault|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|rate limit|Could not resolve host|Temporary failure|502 Bad Gateway|503 Service|runner has received a shutdown|lost communication with the server|No space left on device|The operation was canceled|Connection reset by peer|TLS handshake timeout|failed to download|Unable to download/i;
+function tally(cs) {
+  const k = { pass: 0, fail: 0, pend: 0, bad: [] };
+  for (const c of cs) {
+    const v = String(c.conclusion || c.state || '').toUpperCase(), done = !c.status || c.status === 'COMPLETED';
+    if (!done || v === 'PENDING' || v === '') k.pend++;
+    else if (['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(v)) k.pass++;
+    else { k.fail++; k.bad.push(c); }
+  }
+  return k;
+}
+async function waitChecks({ repo, number, job, log, step, idx, expectSha }) {
+  const t0 = Date.now(); let last = '';
+  for (;;) {
+    chk(job);
+    const pr = JSON.parse(await gh('pr', 'view', String(number), '-R', repo, '--json', 'headRefOid,statusCheckRollup,state'));
+    if (pr.state === 'MERGED') return { state: 'pass' };
+    if (pr.state === 'CLOSED') return { state: 'closed' };
+    const cs = pr.statusCheckRollup || [], k = tally(cs);
+    if (expectSha && pr.headRefOid !== expectSha) { /* the push is not visible on GitHub yet */ }
+    else if (!cs.length) { if (Date.now() - t0 > 4 * 60e3) return { state: 'none' }; }
+    else if (!k.pend) return k.fail ? { state: 'fail', bad: k.bad, k, sha: pr.headRefOid } : { state: 'pass', k };
+    const m = cs.length ? `${k.pass} passed, ${k.fail} failed, ${k.pend} running` : 'waiting for checks to start…';
+    if (m !== last) { last = m; log('CI: ' + m); step(idx, 'run', m); }
+    if (Date.now() - t0 > 120 * 60e3) return { state: 'timeout' };
+    await sleepJob(job, 40000);
+  }
+}
+async function ciLogs(repo, bad) {
+  const ids = [...new Set(bad.map(c => (String(c.detailsUrl || '').match(/\/actions\/runs\/(\d+)/) || [])[1]).filter(Boolean))].slice(0, 4);
+  let text = ''; for (const id of ids) text += `\n--- failed CI run ${id} ---\n` + (await gh('run', 'view', id, '-R', repo, '--log-failed').catch(() => '')).slice(-5000);
+  return { ids, text };
+}
+ipcMain.handle('ci', async (e, { repo, number, job, ck: saved, cur, idx, draft }) => {
+  const step = (i, status, detail = '') => e.sender.send('step', { job, i, status, detail });
+  const log = (t) => e.sender.send('log', { job, t: t + '\n' });
+  const ck = saved || {}, save = (p) => { Object.assign(ck, p); e.sender.send('ckpt', { job, ck }); };
+  const ci = ck.ci || { round: 0, reruns: 0 }; aborted.delete(job);
+  try {
+    let expectSha = null;
+    for (;;) {
+      step(idx, 'run', 'waiting for checks…'); log(`Waiting for the GitHub checks of PR #${number}…`);
+      const w = await waitChecks({ repo, number, job, log, step, idx, expectSha }); chk(job);
+      if (w.state === 'pass' || w.state === 'none') {
+        if (w.state === 'none') log('No CI checks are configured for this PR.'); else log('All checks passed.');
+        if (draft) { await gh('pr', 'ready', String(number), '-R', repo).then(() => log('The PR was a draft: marked it ready for review.')).catch(err => log('Could not mark it ready: ' + err.message)); }
+        step(idx, 'done', w.state === 'none' ? 'no CI configured' : 'all checks passed'); return { green: true };
+      }
+      if (w.state !== 'fail') { step(idx, 'fail', w.state === 'closed' ? 'PR was closed' : 'timed out waiting'); return { green: false, reason: w.state === 'closed' ? 'the PR was closed' : 'the checks did not finish in 2 hours' }; }
+      const failing = w.bad.map(c => c.name || c.context); log(`${failing.length} failing: ${failing.slice(0, 6).join(', ')}${failing.length > 6 ? '…' : ''}`);
+      const { ids, text } = await ciLogs(repo, w.bad);
+      const onlyCancelled = w.bad.every(c => String(c.conclusion).toUpperCase() === 'CANCELLED');
+      // flaky infrastructure: re-run the failed jobs instead of changing code (max 2x)
+      if ((onlyCancelled || FLAKY.test(text)) && ci.reruns < 2 && ids.length) {
+        ci.reruns++; save({ ci }); log(`Looks like an infrastructure/flaky failure: re-running the failed jobs (${ci.reruns}/2)…`);
+        for (const id of ids) await gh('run', 'rerun', id, '-R', repo, '--failed').catch(err => log('rerun: ' + err.message));
+        expectSha = null; await sleepJob(job, 30000); continue;
+      }
+      if (ci.round >= 3) { step(idx, 'fail', 'still failing after 3 fix rounds'); return { green: false, reason: `still failing after 3 fix rounds: ${failing.slice(0, 4).join(', ')}` }; }
+      ci.round++; save({ ci }); step(idx, 'run', `fixing CI (round ${ci.round}/3)…`); log(`Fixing the failing checks (round ${ci.round}/3)…`);
+      const dir = cur.dir;
+      const out = await claude(`A pull request's CI checks FAILED. Its branch is checked out in the current directory. Failing checks: ${failing.join(', ')}.
+Read the failure output, find the REAL cause in the code (static analysis such as PHPStan/ESLint types, coding-style, a failing test, a version-specific API difference like an older PHP/Node version, etc.) and fix it with a minimal, focused edit that matches the repo's style.
+Never disable or weaken a check, skip or delete a test, or add ignore rules just to turn it green. Edit files only; do not run git. No text mentioning AI tools.
+If the failure is clearly unrelated to this PR's changes (broken on the base branch too), change nothing and say so.
+End with the marker line "COMMIT:" followed by a one-line commit message describing the fix.
+
+FAILED CI OUTPUT (tail):${text || ' (not available)'}`, { cwd: dir, edit: true, onLog: log, job });
+      chk(job);
+      await git(dir, 'add', '-N', '.');
+      if (!(await git(dir, 'status', '--porcelain')).trim()) { step(idx, 'fail', 'no fix found'); return { green: false, reason: 'the AI found no code change that fixes the failing checks (they may be unrelated to this PR)' }; }
+      const tfiles = (await git(dir, 'diff', '--name-only', 'HEAD')).split('\n').filter(f => TEST_RE.test(f)).concat(cur.tests || []);
+      const tr = await verifyTests({ dir, files: [...new Set(tfiles)], job, log, step, idx });
+      if (!tr.ok && !tr.env && tfiles.length) { step(idx, 'fail', 'fix did not pass local tests'); return { green: false, reason: `my fix did not pass the local tests (${tr.reason})` }; }
+      const k = out.lastIndexOf('COMMIT:'), msg = ((k >= 0 ? out.slice(k + 7) : '').trim().split('\n')[0] || 'Fix CI failures').slice(0, 100);
+      step(idx, 'run', 'pushing the fix…'); log(`Committing and pushing: ${msg}`);
+      await pushUpdate({ repo, number, dir, branch: cur.branch, message: msg, reply: '' });
+      expectSha = (await git(dir, 'rev-parse', 'HEAD')).trim(); save({ ci });
+      await sleepJob(job, 20000);
+    }
+  } catch (err) { step(idx, 'fail', err.message.slice(0, 60)); log((/Stopped by you/.test(err.message) ? 'STOPPED: ' : 'FAILED: ') + err.message); throw err; }
 });
 
 ipcMain.handle('open', (e, { url, copy }) => { if (copy) clipboard.writeText(copy); return shell.openExternal(url); });

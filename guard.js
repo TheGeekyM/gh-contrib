@@ -6,6 +6,6 @@ const findTrace = (...blobs) => { for (const b of blobs) for (const l of String(
 // only added lines of a diff + file names matter; context/removed lines are not ours
 const addedLines = (diff) => diff.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++')).join('\n');
 const hasPolicy = (docs) => Object.entries(docs).filter(([, t]) => POLICY.test(t)).map(([f]) => f);
-// one PR per repo per 24h
-const rateOk = (last, now = Date.now()) => !last || now - last >= 864e5;
+// at most `cap` PRs per repo per 24h (cap 0 = unlimited); `times` = timestamps of PRs already opened
+const rateOk = (times, cap, now = Date.now()) => !cap || (times || []).filter(t => now - t < 864e5).length < cap;
 module.exports = { findTrace, addedLines, hasPolicy, rateOk };
