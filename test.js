@@ -31,3 +31,12 @@ assert.strictEqual(g.rejectKind('Taylor closed the near-identical PR #59553, cit
 assert.strictEqual(g.rejectKind('needs a new public API and maintainer design sign-off'), 'toobig');
 assert.strictEqual(g.rejectKind('A similar PR (#1 "x") was closed without being merged.'), 'declined');
 console.log('ok kind');
+
+['microsoft-github-policy-service', 'copilot-pull-request-reviewer', 'github-actions', 'codecov-commenter', 'dependabot[bot]'].forEach(n => assert(g.isBot(n), n));
+['taylorotwell', 'afourney', 'Seldaek', 'TheGeekyM'].forEach(n => assert(!g.isBot(n), n));
+console.log('ok bots');
+
+assert(g.isBot('meta-cla'));
+assert.deepStrictEqual(g.pickTitle(["I've read the helper. Here's the PR description.", '', 'Add contract tests', '', 'body']).title, 'Add contract tests');
+assert.strictEqual(g.pickTitle(['Only chatter here.']), null);
+console.log('ok title');

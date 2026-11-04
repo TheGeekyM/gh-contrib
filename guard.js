@@ -21,4 +21,8 @@ const similar = (a, b) => { const x = WORDS(a), y = WORDS(b); if (!x.size || !y.
 const matchIdea = (title, pool, min = 0.6) => (pool || []).find(p => similar(title, p.title) >= min) || null;
 // why was an idea rejected? 'declined' = maintainers said no / duplicate (permanent); 'toobig' = needs design sign-off (a smaller slice may still work)
 const rejectKind = (reason) => /\b(closed|declined|rejected|won'?t accept|out of scope|not wanted)\b/i.test(reason) ? 'declined' : /design|sign-?off|public api|cross-cutting|too big|approval|redesign|new contract/i.test(reason) ? 'toobig' : 'declined';
-module.exports = { rejectKind, similar, matchIdea, lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };
+// automated accounts (CLA bots, CI bots, AI reviewers): never replied to, never counted as "needs your reply"
+const isBot = (n) => /\[bot\]$|bot$|-bot|^github-actions$|^codecov|copilot|policy-service|-cla$|^cla|-service$|^dependabot|^renovate|^netlify|^vercel/i.test(n || '');
+// first line that looks like a real title (not assistant chatter); null if none
+const pickTitle = (lines) => { const i = lines.findIndex(l => { const t = l.replace(/^#+\s*/, '').trim(); return t && t.length <= 90 && !/[.:]$/.test(t) && !/^(I|I've|I'll|Here|Here's|The working|Note|Sure|Okay)\b/.test(t); }); return i < 0 ? null : { title: lines[i].replace(/^#+\s*/, '').trim(), rest: lines.slice(i + 1) }; };
+module.exports = { pickTitle, isBot, rejectKind, similar, matchIdea, lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };

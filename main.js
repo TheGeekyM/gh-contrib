@@ -184,7 +184,7 @@ ${meta}\nOpen issues: ${issues}\n\nALREADY REJECTED OR DECLINED (do not propose 
     step(2, 'done', 'analysed');
     let out2 = out; // second line of defence: flag any proposed idea that matches a rejected idea or a declined PR
     try { const list = JSON.parse(out.slice(out.indexOf('['), out.lastIndexOf(']') + 1)), pool = [...rejected, ...declined];
-      list.forEach(x => { const h = G.matchIdea(x.title, pool); if (h) { x.rejected = h.reason; x.rejectedKind = h.kind || 'declined'; log(`Rejected automatically: "${x.title}": ${h.reason}`); } }); out2 = JSON.stringify(list); } catch {} step(i = 3, 'done', 'ideas ready');
+      for (const x of list.slice()) { const h = G.matchIdea(x.title, pool); if (h?.kind === 'sent') { list.splice(list.indexOf(x), 1); log(`Dropped "${x.title}": already sent to Forge.`); continue; } if (h) { x.rejected = h.reason; x.rejectedKind = h.kind || 'declined'; log(`Rejected automatically: "${x.title}": ${h.reason}`); } } out2 = JSON.stringify(list); } catch {} step(i = 3, 'done', 'ideas ready');
     return out2;
   } catch (err) { step(i, 'fail', err.message.slice(0, 60)); log('FAILED: ' + err.message); throw err; }
 });
@@ -376,7 +376,7 @@ ${tpl ? `\nThe repo has a PR template. Keep ALL its headings and checkboxes, fil
 Never mention AI tools, assistants, or generated code anywhere.
 
 ${issue ? `CONTEXT (${number ? 'issue #' + number : 'idea'}): ${issue.title}\n${String(issue.body || '').slice(0, 4000)}\n\n` : ''}DIFF:\n${(await git(dir, 'diff')).slice(0, 40000)}`, { cwd: dir, read: true, job });
-  const [title, ...rest] = out.trim().split('\n'); return { title: title.replace(/^#+\s*/, ''), body: rest.join('\n').trim() };
+  const pt = G.pickTitle(out.trim().split('\n')); if (!pt) throw new Error('The AI did not return a usable PR title. Run it again.'); return { title: pt.title, body: pt.rest.join('\n').trim() };
 }
 ipcMain.handle('draft', (e, a) => makeDraft(a));
 
@@ -471,7 +471,7 @@ Work out whether the TEST or the SOURCE change is wrong and fix the real cause. 
 }
 
 // ---- replies on my PRs: comments, reviews, inline comments, CI checks ----
-const isBot = (n) => /\[bot\]$|-bot$|^github-actions$|^codecov/i.test(n || '');
+const isBot = G.isBot;
 async function collectReplies(repo, number, login) {
   const pr = JSON.parse(await gh('pr', 'view', String(number), '-R', repo, '--json', 'comments,reviews,state'));
   const inline = JSON.parse(await gh('api', `repos/${repo}/pulls/${number}/comments?per_page=50`).catch(() => '[]'));
@@ -518,7 +518,9 @@ ipcMain.handle('feedback', async (e, { repo, number, user, job, ck: saved, auto 
       let ci = ''; for (const id of runIds) { log(`Fetching the failure log of CI run ${id}…`); ci += `\n--- failed CI run ${id} ---\n` + (await gh('run', 'view', id, '-R', repo, '--log-failed').catch(() => '')).slice(-5000); }
       const text = human.map(r => `@${r.who} (${r.kind}${r.path ? ', ' + r.path : ''}): ${String(r.body).slice(0, 1500)}`).join('\n---\n');
       log(`${human.length} human comment(s), ${failing.length} failing check(s).`);
-      save({ fb: { title: pr.title, branch: pr.headRefName, cross: pr.isCrossRepository, text, failing, ci } });
+      const cla = replies.some(x => x.bot && /\bCLA\b|contributor license agreement/i.test(x.body)); // a legal step only you can take
+      if (cla) log('A bot is asking for a Contributor License Agreement. Agreeing is a legal step, so it is flagged for you and never done automatically.');
+      save({ cla, fb: { title: pr.title, branch: pr.headRefName, cross: pr.isCrossRepository, text, failing, ci } });
     }
     const fb = ck.fb; step(0, 'done', `${fb.text ? 'feedback read' : 'no comments'}${fb.failing.length ? ', ' + fb.failing.length + ' failing' : ''}`); chk(job);
 
@@ -559,17 +561,26 @@ FEEDBACK:\n${fb.text || '(no human comments; focus on the failing checks)'}\n\nF
       const names = (await git(dir, 'diff', '--name-only')).split('\n').filter(f => TEST_RE.test(f));
       const prFiles = (await gh('pr', 'diff', String(number), '-R', repo, '--name-only').catch(() => '')).split('\n').filter(f => TEST_RE.test(f));
       const tr = await verifyTests({ dir, files: [...names, ...prFiles], job, log, step, idx: 3 });
-      save({ testRun: { v: 3, ok: tr.ok, cmd: tr.cmd, reason: tr.reason } });
+      save({ testRun: { v: 3, ok: tr.ok, env: tr.env, cmd: tr.cmd, reason: tr.reason } });
     }
-    const tr = ck.testRun; step(3, tr.ok ? 'done' : 'fail', tr.ok ? 'passed' : tr.reason); chk(job);
+    const tr = ck.testRun; step(3, tr.ok || tr.env ? 'done' : 'fail', tr.ok ? 'passed' : tr.env ? 'skipped here, project CI will run them' : tr.reason); chk(job);
     const res = { dir, branch: fb.branch, direct: !fb.cross, reply: ck.reply, testCmd: tr.cmd, testsOk: tr.ok, issue: { title: fb.title, body: fb.text }, followup: true };
-    if (ck.pushed) { step(4, 'done', 'update pushed'); return { ...res, pushed: true }; }
+    if (ck.pushed) { step(4, 'done', 'update pushed'); return { ...res, pushed: true, noPush: !!ck.noPush, cla: !!ck.cla }; }
     const changed = (await git(dir, 'status', '--porcelain')).trim();
     // auto: push the update (and post the reply) when the tests passed, or could not run here and CI will check. Pure replies with no code change stay for your review.
+    if (auto && !changed) { // nothing to push: answer the humans (if any) with the drafted reply, never reply to bots
+      step(i = 4, 'run', 'posting reply…'); const reply = fb.text.trim() ? (ck.reply || '').trim() : '';
+      const hit = reply && G.findTraceT(topicalOf(repo, dir), reply);
+      if (hit) { log('Reply held back (trace check): ' + hit); step(4, 'run', 'your review'); return { ...res, autoBlocked: 'the drafted reply tripped the no-AI-trace check: edit it and post it yourself' }; }
+      if (reply) { await gh('pr', 'comment', String(number), '-R', repo, '--body', reply); log('Reply posted on the PR.'); }
+      else log('Nothing to answer (the feedback came from bots / CI only).');
+      save({ pushed: true, noPush: true }); step(4, 'done', reply ? 'reply posted' : 'nothing to answer');
+      return { ...res, pushed: true, noPush: true, replied: !!reply, cla: !!ck.cla };
+    }
     if (auto && changed && (tr.ok || tr.env)) {
       step(i = 4, 'run', 'pushing update…'); log(tr.ok ? 'Tests passed: committing and pushing the update…' : `Tests could not run here (${tr.reason}): pushing so CI checks it…`);
       try {
-        await pushUpdate({ repo, number, dir, branch: fb.branch, message: 'Address review feedback', reply: ck.reply });
+        await pushUpdate({ repo, number, dir, branch: fb.branch, message: 'Address review feedback', reply: fb.text.trim() ? ck.reply : '' });
         save({ pushed: true }); log('Update pushed to ' + fb.branch + (ck.reply ? ' and the reply was posted.' : '.')); step(4, 'done', 'update pushed');
         return { ...res, pushed: true };
       } catch (err) {
@@ -615,10 +626,12 @@ async function waitChecks({ repo, number, job, log, step, idx, expectSha }) {
     const pr = JSON.parse(await gh('pr', 'view', String(number), '-R', repo, '--json', 'headRefOid,statusCheckRollup,state'));
     if (pr.state === 'MERGED') return { state: 'pass' };
     if (pr.state === 'CLOSED') return { state: 'closed' };
-    const cs = pr.statusCheckRollup || [], k = tally(cs);
+    // a pending CLA check waits for YOU (a legal agreement), so it never blocks the run: flag it instead
+    const all = pr.statusCheckRollup || [], isCla = c => /\bcla\b/i.test(c.name || c.context || ''), cs = all.filter(c => !isCla(c)), k = tally(cs);
+    const cla = all.some(c => isCla(c) && !['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(String(c.conclusion || c.state).toUpperCase()));
     if (expectSha && pr.headRefOid !== expectSha) { /* the push is not visible on GitHub yet */ }
-    else if (!cs.length) { if (Date.now() - t0 > 4 * 60e3) return { state: 'none' }; }
-    else if (!k.pend) return k.fail ? { state: 'fail', bad: k.bad, k, sha: pr.headRefOid } : { state: 'pass', k };
+    else if (!cs.length) { if (Date.now() - t0 > (cla ? 20e3 : 4 * 60e3)) return { state: 'none', cla }; }
+    else if (!k.pend) return k.fail ? { state: 'fail', bad: k.bad, k, sha: pr.headRefOid } : { state: 'pass', k, cla };
     const m = cs.length ? `${k.pass} passed, ${k.fail} failed, ${k.pend} running` : 'waiting for checks to start…';
     if (m !== last) { last = m; log('CI: ' + m); step(idx, 'run', m); }
     if (Date.now() - t0 > 120 * 60e3) return { state: 'timeout' };
@@ -643,7 +656,7 @@ ipcMain.handle('ci', async (e, { repo, number, job, ck: saved, cur, idx, draft }
       if (w.state === 'pass' || w.state === 'none') {
         if (w.state === 'none') log('No CI checks are configured for this PR.'); else log('All checks passed.');
         if (draft) { await gh('pr', 'ready', String(number), '-R', repo).then(() => log('The PR was a draft: marked it ready for review.')).catch(err => log('Could not mark it ready: ' + err.message)); }
-        step(idx, 'done', w.state === 'none' ? 'no CI configured' : 'all checks passed'); return { green: true };
+        step(idx, 'done', w.state === 'none' ? 'no CI configured' : 'all checks passed'); if (w.cla) { log('The CLA check is waiting for you to agree to the Contributor License Agreement (a legal step, not done automatically).'); save({ cla: true }); } return { green: true, cla: !!w.cla };
       }
       if (w.state !== 'fail') { step(idx, 'fail', w.state === 'closed' ? 'PR was closed' : 'timed out waiting'); return { green: false, reason: w.state === 'closed' ? 'the PR was closed' : 'the checks did not finish in 2 hours' }; }
       const failing = w.bad.map(c => c.name || c.context); log(`${failing.length} failing: ${failing.slice(0, 6).join(', ')}${failing.length > 6 ? '…' : ''}`);

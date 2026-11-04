@@ -119,6 +119,26 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
 .card.rj{opacity:.75;border-color:rgba(255,107,107,.3);background:linear-gradient(160deg,rgba(255,107,107,.08),#111 65%);margin-top:8px}.rj h4{margin:0 0 4px;font-size:13px}.rj .why{color:#d9a0a0;font-size:12px;line-height:1.5}
 .blkb{margin:0 0 10px;display:flex;gap:8px;align-items:center}
 .seg .chipb b{background:rgba(255,255,255,.1);border-radius:999px;padding:0 7px;font-size:11px;font-weight:600}.seg .chipb b:empty{display:none}.seg .chipb.on b{background:rgba(142,198,255,.22)}
+
+.fhead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 16px}.fhead h1{margin:0;font-size:28px;letter-spacing:-.025em}.fhead p{margin:2px 0 0;color:var(--dim);font-size:13px}
+.fset{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);backdrop-filter:blur(10px)}
+.fs{display:flex;align-items:center;gap:8px;padding:4px 10px;color:var(--dim);font-size:12px;border-right:1px solid rgba(255,255,255,.08)}.fs input{width:54px;margin:0;padding:4px 8px;text-align:center;border-radius:8px}
+.sw{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 8px;color:var(--ink);font-size:12px;cursor:pointer;user-select:none}.sw input{display:none}
+.sw i{width:32px;height:18px;border-radius:999px;background:#2a2a2a;position:relative;transition:.2s;flex:none}.sw i::after{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#888;transition:.2s}
+.sw input:checked+i{background:rgba(142,198,255,.35)}.sw input:checked+i::after{left:16px;background:var(--acc)}
+.fbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px}.fsel{display:flex;gap:8px}
+.ms{position:relative}.msb{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--ink);font-size:12.5px;min-width:150px}
+.msb span{flex:1;text-align:left;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.msb.act{border-color:rgba(142,198,255,.55);color:var(--acc);background:rgba(142,198,255,.1)}.msb .car{transition:transform .2s;opacity:.7}.ms.open .car{transform:rotate(180deg)}
+.msp{display:none;position:absolute;z-index:30;top:calc(100% + 6px);left:0;min-width:260px;max-height:340px;overflow:auto;padding:6px;border-radius:14px;background:rgba(18,22,30,.96);border:1px solid rgba(142,198,255,.22);box-shadow:0 18px 50px rgba(0,0,0,.55);backdrop-filter:blur(14px)}.ms.open .msp{display:block}
+.mi{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:9px;cursor:pointer;font-size:12.5px}.mi:hover{background:rgba(255,255,255,.06)}.mi span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mi b{color:var(--dim);font-size:11px;font-weight:600}
+.mi input{display:none}.mi .bx{width:15px;height:15px;border-radius:5px;border:1.5px solid #555;flex:none;display:grid;place-items:center}.mi input:checked+.bx{background:var(--acc);border-color:var(--acc)}.mi input:checked+.bx::after{content:'';width:4px;height:8px;border:solid #07121f;border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.mclr{padding:8px 9px;margin-top:4px;border-top:1px solid rgba(255,255,255,.08);color:var(--acc);font-size:12px;cursor:pointer}
+
+:root{color-scheme:dark}
+*{scrollbar-width:thin;scrollbar-color:#2a3140 transparent}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#262c38;border-radius:10px;border:2px solid transparent;background-clip:content-box}::-webkit-scrollbar-thumb:hover{background:#3a4456;background-clip:content-box;border:2px solid transparent}::-webkit-scrollbar-corner{background:transparent}
+.prb{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;color:var(--acc);background:rgba(142,198,255,.1);border:1px solid rgba(142,198,255,.35);transition:.15s}.prb:hover{background:rgba(142,198,255,.22)}.prb svg.i{width:11px;height:11px}
 </style>
 <div id="tabs"><span class="on">Dashboard</span><span id="tw">GitHub</span></div>
 <div id="hdr"><span class="logo" data-ic="git-branch"></span><b>gh-contrib</b><span id="crumb">› pick a repo</span><span id="chip">not signed in</span></div>
@@ -142,12 +162,17 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
     <div id="p-repo"><div class="hero"><h1>Repos</h1><span class="d">Open as many as you like. Each keeps its own scan.</span></div>
       <div class="bar"><input id="repo" placeholder="owner/name, e.g. laravel/framework"><button class="g" id="idea">Ideas</button><button id="scan">Scan issues</button></div>
       <div id="rerr" class="e"></div><div id="scanout"></div></div>
-    <div id="p-forge"><div id="board"><div class="hero"><h1>Forge</h1><span class="d">Runs go in parallel; the rest queue. <label>Parallel <input class="mx" id="max" type="number" min="1" max="8"></label> <label title="Cap on PRs per repo per 24h (0 = no cap)">PRs/repo/day <input class="mx" id="prcap" type="number" min="0" max="50"></label> <label title="When the tests pass, commit and open the PR without waiting for you"><input type="checkbox" id="auto"> Auto-open PR when tests pass</label></span></div><div class="stopbar" id="ftools" style="align-items:center"></div><div class="stats" id="fchips"></div><div id="tiles"></div></div><div id="jobviews"></div></div>
+    <div id="p-forge"><div id="board"><div class="fhead"><div><h1>Forge</h1><p>Runs go in parallel; the rest queue.</p></div>
+      <div class="fset"><label class="fs" title="How many runs work at the same time">Parallel <input class="mx" id="max" type="number" min="1" max="8"></label>
+        <label class="fs" title="Cap on PRs per repo per 24h (0 = no cap)">PRs / repo / day <input class="mx" id="prcap" type="number" min="0" max="50"></label>
+        <label class="sw" title="When the tests pass, commit and open the PR without waiting for you"><input type="checkbox" id="auto"><i></i>Auto-open PR</label></div></div>
+    <div class="fbar"><div class="fsel" id="fchips"></div><div class="stopbar" id="ftools" style="align-items:center;margin:0"></div></div><div id="tiles"></div></div><div id="jobviews"></div></div>
     <div id="p-web"><webview id="wv" src="https://github.com" partition="persist:github"></webview></div>
   </div>
 </div>
 <script>
 const $ = (s) => document.querySelector(s), esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+let msOpen = null; document.addEventListener('click', () => { if (msOpen) { msOpen = null; renderBoard(); } });
 let me, S, active = null, jid = 0, fRepos = new Set(), fStat = new Set(), CACHE = {}; const sel = new Set(); const R = {}, J = [], JOBS = {};
 const WORK_STEPS = ['Forking repo', 'Cloning', 'Branch & identity', 'Reading the issue', 'Reading docs & validating', 'AI fixing', 'Writing unit tests', 'Running tests', 'Review & PR', 'CI checks'];
 const FB_STEPS = ['Reading feedback', 'Preparing branch', 'Applying changes', 'Running tests', 'Review & push', 'CI checks'];
@@ -169,6 +194,7 @@ function ask({ title, text, ok = 'Confirm', danger }) {
   });
 }
 const IC = {
+  layers: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/>',
   flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
   user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
@@ -311,6 +337,14 @@ function markIdea(repo, title, reason, kind) {
     const j = R[repo]?.ideas; if (j && j.status === 'review') { j.result = c.ideas.result; renderPane(j); } } catch {}
 }
 const rejOf = (j) => (CACHE[j.repo]?.rejected || []).find(x => x.title === j.idea?.title);
+// an idea sent to Forge leaves the list (it is in Forge now) and is never proposed again
+function sentIdea(repo, title) {
+  const c = (CACHE[repo] ||= {}), sent = (c.sent ||= []); if (!sent.some(x => x.title === title)) { sent.push({ title, at: Date.now() }); gc.cacheSet({ repo, key: 'sent', value: sent }); }
+  if (!c.ideas?.result) return;
+  try { const t = c.ideas.result, arr = JSON.parse(t.slice(t.indexOf('['), t.lastIndexOf(']') + 1)).filter(x => x.title !== title);
+    c.ideas.result = JSON.stringify(arr); gc.cacheSet({ repo, key: 'ideas', value: c.ideas });
+    const j = R[repo]?.ideas; if (j && j.status === 'review') { j.result = c.ideas.result; renderPane(j); } } catch {}
+}
 const RK = { declined: ['c-failed', 'Declined'], toobig: ['c-stopped', 'Too big'] };
 // rejected ideas live in the repo's Rejected tab, flagged with why
 function paintRej(repo) {
@@ -420,8 +454,8 @@ function restoreJobs(list) {
       j.status = 'paused'; j.err = 'The app was closed while this was running.'; j.t1 = j.t1 || Date.now();
     }
     if (j.kind === 'feedback' && j.status === 'review' && j.ck?.applied && !j.ck.pushed) { // an update that stopped at review: re-check and push it automatically
-      if (j.ck.testRun && !j.ck.testRun.ok && (j.ck.testRun.v || 0) < 3) delete j.ck.testRun; // judged by an older, wrong test selection
-      if (!j.ck.testRun || j.ck.testRun.ok) { j.steps = j.steps.slice(0, 3); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: re-running tests and pushing the update ---\n'; }
+      if (j.ck.testRun && !j.ck.testRun.ok && !j.ck.testRun.env) delete j.ck.testRun; // judged by an older runner (or never classified): run again
+      if (!j.ck.testRun || j.ck.testRun.ok || j.ck.testRun.env) { j.steps = j.steps.slice(0, 3); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: re-running tests and pushing the update ---\n'; }
     }
     if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && j.ck.testRun && !j.ck.testRun.ok && (j.ck.testRun.v || 0) < 3) delete j.ck.testRun; // older runner could not find the tests' runner
     if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && j.ck.testRun && (j.ck.testRun.ok || j.ck.testRun.env || !(j.ck.tests || []).length) && !j.ck.prUrl && S.auto !== false) { j.steps = j.steps.slice(0, 8); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: opening the PR ---\n'; } // stopped before the PR was opened: finish on its own
@@ -437,7 +471,7 @@ async function watchCi(j) {
   if (S.auto === false || !number) { j.status = 'done'; return; } // manual mode: you handle CI yourself
   j.status = 'ci'; renderPane(j); paint(j); renderBoard(); saveJobs();
   const r = await gc.ci({ repo: j.repo, number, job: j.id, ck: j.ck, cur: { dir: j.cur.dir, branch: j.cur.branch, tests: j.cur.tests }, idx: STEPSOF(j).length - 1, draft: !!j.cur.draft });
-  if (r.green) { j.status = 'done'; j.ciGreen = true; } else { j.status = 'failed'; j.err = 'CI is not green: ' + r.reason; }
+  if (r.green) { j.status = 'done'; j.ciGreen = true; if (r.cla) j.ck = { ...(j.ck || {}), cla: true }; } else { j.status = 'failed'; j.err = 'CI is not green: ' + r.reason; }
 }
 function startCi(j) { // for the manual paths (you opened the PR / pushed the update yourself)
   watchCi(j).catch(e => { j.err = msg(e); j.status = /Stopped by you/.test(j.err) ? 'paused' : 'failed'; if (j.status === 'paused') j.err = 'You stopped this run.'; })
@@ -461,9 +495,10 @@ function pump() { // start queued runs (oldest first) while under the parallel l
 async function run(j) {
   j.status = 'running'; j.t0 = Date.now(); j.t1 = 0; renderPane(j); paint(j); renderBoard();
   try {
-    if (j.kind === 'ideas') { j.result = await gc.ideas({ repo: j.repo, job: j.id, rejected: CACHE[j.repo]?.rejected || [] }); j.status = 'review'; const c = { result: j.result, log: j.log.slice(-20000), at: Date.now() }; gc.cacheSet({ repo: j.repo, key: 'ideas', value: c }); (CACHE[j.repo] ||= {}).ideas = c; }
+    if (j.kind === 'ideas') { j.result = await gc.ideas({ repo: j.repo, job: j.id, rejected: [...(CACHE[j.repo]?.rejected || []), ...(CACHE[j.repo]?.sent || []).map(x => ({ title: x.title, kind: 'sent', reason: 'Already sent to Forge.' }))] }); j.status = 'review'; const c = { result: j.result, log: j.log.slice(-20000), at: Date.now() }; gc.cacheSet({ repo: j.repo, key: 'ideas', value: c }); (CACHE[j.repo] ||= {}).ideas = c; }
     else if (j.kind === 'feedback') { j.cur = await gc.feedback({ repo: j.repo, number: j.number, user: me, job: j.id, ck: j.ck, auto: S.auto !== false });
-      if (j.cur.pushed) { j.doneNote = 'Update pushed automatically.'; j.prUrl = (R[j.repo]?.done || []).find(x => x.number === j.number)?.url || ''; await watchCi(j); setTimeout(() => refreshDone(j.repo, true), 4000); }
+      if (j.cur.noPush) { j.doneNote = j.cur.replied ? 'Reply posted on the PR (no code change was needed).' : 'Nothing to answer: the feedback came from bots / CI only.'; j.status = 'done'; renderPane(j); }
+      else if (j.cur.pushed) { j.doneNote = 'Update pushed automatically.'; j.prUrl = (R[j.repo]?.done || []).find(x => x.number === j.number)?.url || ''; await watchCi(j); setTimeout(() => refreshDone(j.repo, true), 4000); }
       else j.status = 'review'; }
     else {
       j.cur = await gc.prepare({ repo: j.repo, number: j.number, idea: j.idea, user: me, force: j.force, job: j.id, ck: j.ck, auto: S.auto !== false });
@@ -479,8 +514,12 @@ function renderBoard() {
   [...fRepos].forEach(r => { if (!J.some(j => j.repo === r)) fRepos.delete(r); });
   const repos = [...new Set(J.map(j => j.repo))], L0 = J.filter(j => !fRepos.size || fRepos.has(j.repo)), L = L0.filter(j => fStat.size ? fStat.has(SG(j.status)) : j.status !== 'stopped');
   const cnt = g => L0.filter(j => SG(j.status) === g).length;
-  $('#fchips').innerHTML = (repos.length > 1 || fRepos.size ? `<span class="chipb ${fRepos.size ? '' : 'on'}" data-f="">All <b>${J.length}</b></span>` + repos.map(r => `<span class="chipb ${fRepos.has(r) ? 'on' : ''}" data-f="${esc(r)}">${ic('git-branch')}${esc(r)} <b>${J.filter(j => j.repo === r).length}</b></span>`).join('') + '<span class="fsep"></span>' : '')
-    + Object.entries(SGL).filter(([g]) => cnt(g) || fStat.has(g)).map(([g, t]) => `<span class="chipb s-${g} ${fStat.has(g) ? 'on' : ''}" data-st="${g}">${t} <b>${cnt(g)}</b></span>`).join('');
+  const dd = (key, icon, none, items, set) => { const n = set.size, label = n === 0 ? none : n === 1 ? [...set][0].replace(/^.*\//, '') : n + ' selected';
+    return `<div class="ms ${msOpen === key ? 'open' : ''}"><button class="msb ${n ? 'act' : ''}" data-ms="${key}">${ic(icon)}<span>${esc(label)}</span><svg class="car" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="msp">${items.map(([v, t, c, col]) => `<label class="mi"><input type="checkbox" data-mi="${key}" value="${esc(v)}" ${set.has(v) ? 'checked' : ''}><i class="bx"></i>${col ? `<i class="ldot" style="--c:${col}"></i>` : ''}<span>${esc(t)}</span><b>${c}</b></label>`).join('') || '<div class="d" style="padding:8px">Nothing yet</div>'}${n ? `<div class="mclr" data-mc="${key}">Clear selection</div>` : ''}</div></div>`; };
+  const SCOL = { wait: '#aaa', prog: '#8ec6ff', stop: '#ff8a8a', ready: '#ffd27a', done: '#7be0b0', skip: '#c9a0ff' };
+  $('#fchips').innerHTML = dd('repo', 'git-branch', 'All repos', repos.map(r => [r, r, J.filter(j => j.repo === r).length]), fRepos)
+    + dd('stat', 'layers', 'Active runs', Object.entries(SGL).filter(([g]) => cnt(g) || fStat.has(g)).map(([g, t]) => [g, t, cnt(g), SCOL[g]]), fStat);
   const resumable = (j) => j.status === 'paused' || j.status === 'failed';
   const res = L.filter(resumable); [...sel].forEach(id => { if (!JOBS[id] || !resumable(JOBS[id])) sel.delete(id); });
   $('#ftools').innerHTML = res.length || sel.size ? `<span class="d" style="font-size:12px">${res.length} stopped or failed</span><button class="g" id="selres">${sel.size === res.length && res.length ? 'Clear selection' : 'Select all'}</button><button id="contsel" ${sel.size ? '' : 'disabled'}>${ic('play')} Continue selected (${sel.size})</button><button id="contall" ${res.length ? '' : 'disabled'}>${ic('play')} Continue all (${res.length})</button>` : '';
@@ -488,16 +527,19 @@ function renderBoard() {
   if ($('#selres')) $('#selres').onclick = () => { if (sel.size === res.length) sel.clear(); else res.forEach(j => sel.add(j.id)); renderBoard(); };
   if ($('#contsel')) $('#contsel').onclick = () => go2([...sel].map(id => JOBS[id]));
   if ($('#contall')) $('#contall').onclick = () => go2(res);
-  document.querySelectorAll('[data-f]').forEach(c => c.onclick = () => { const r = c.dataset.f; if (!r) fRepos.clear(); else fRepos.has(r) ? fRepos.delete(r) : fRepos.add(r); renderBoard(); });
-  document.querySelectorAll('[data-st]').forEach(c => c.onclick = () => { const g = c.dataset.st; fStat.has(g) ? fStat.delete(g) : fStat.add(g); renderBoard(); });
+  document.querySelectorAll('[data-ms]').forEach(b => b.onclick = (e) => { e.stopPropagation(); msOpen = msOpen === b.dataset.ms ? null : b.dataset.ms; renderBoard(); });
+  document.querySelectorAll('[data-mi]').forEach(c => c.onchange = () => { const set = c.dataset.mi === 'repo' ? fRepos : fStat; c.checked ? set.add(c.value) : set.delete(c.value); renderBoard(); });
+  document.querySelectorAll('[data-mc]').forEach(c => c.onclick = () => { (c.dataset.mc === 'repo' ? fRepos : fStat).clear(); renderBoard(); });
+  document.querySelectorAll('.msp').forEach(p => p.onclick = (e) => e.stopPropagation());
   $('#tiles').innerHTML = L.length ? `<div class="tiles">${L.map(j => { const ST = STEPSOF(j), q = J.filter(x => x.status === 'queued').reverse().indexOf(j);
-    return `<div class="card tile t-${SG(j.status)}" data-j="${j.id}"><div class="top">${j.status === 'paused' || j.status === 'failed' ? `<input type="checkbox" data-sel="${j.id}" ${sel.has(j.id) ? 'checked' : ''} style="width:16px;height:16px;margin:0;flex:none;accent-color:#8ec6ff" title="Select">` : ''}<span class="trepo">${ic('git-branch')}${esc(j.repo)}</span>${R[j.repo]?.blocked ? `<span class="chip c-failed" title="${esc(R[j.repo].blocked)}">no PRs</span>` : ''}<span class="chip c-${j.status}">${j.status === 'queued' ? (q + 1) + ' in line' : CHIP[j.status]}</span>${j.status === 'stopped' && rejOf(j) ? `<span class="chip ${RK[rejOf(j).kind || 'declined'][0]}" title="${esc(rejOf(j).reason)}">${ic('flag')}${RK[rejOf(j).kind || 'declined'][1]}</span>` : ''}${j.status === 'running' || j.status === 'queued' || j.status === 'ci' ? `<span class="tx run" data-stop="${j.id}" title="Stop">${ic('stop')}</span>` : `<span class="tx" data-rm="${j.id}" title="Remove from Forge">${ic('x')}</span>`}</div>
+    return `<div class="card tile t-${SG(j.status)}" data-j="${j.id}"><div class="top">${j.status === 'paused' || j.status === 'failed' ? `<input type="checkbox" data-sel="${j.id}" ${sel.has(j.id) ? 'checked' : ''} style="width:16px;height:16px;margin:0;flex:none;accent-color:#8ec6ff" title="Select">` : ''}<span class="trepo">${ic('git-branch')}${esc(j.repo)}</span>${R[j.repo]?.blocked ? `<span class="chip c-failed" title="${esc(R[j.repo].blocked)}">no PRs</span>` : ''}<span class="chip c-${j.status}">${j.status === 'queued' ? (q + 1) + ' in line' : CHIP[j.status]}</span>${j.ck?.cla ? `<span class="chip c-paused" title="A bot wants you to agree to the Contributor License Agreement. That is a legal step, so it is not done automatically.">${ic('alert')}CLA needed</span>` : ''}${j.prUrl ? `<span class="prb" data-pu="${esc(j.prUrl)}" title="Open the pull request">${ic('ext')}#${esc((j.prUrl.match(/\d+$/) || [''])[0])}</span>` : ''}${j.status === 'stopped' && rejOf(j) ? `<span class="chip ${RK[rejOf(j).kind || 'declined'][0]}" title="${esc(rejOf(j).reason)}">${ic('flag')}${RK[rejOf(j).kind || 'declined'][1]}</span>` : ''}${j.status === 'running' || j.status === 'queued' || j.status === 'ci' ? `<span class="tx run" data-stop="${j.id}" title="Stop">${ic('stop')}</span>` : `<span class="tx" data-rm="${j.id}" title="Remove from Forge">${ic('x')}</span>`}</div>
       <div style="font-size:13px;font-weight:600;line-height:1.35;height:36px;overflow:hidden">${esc((j.number ? '#' + j.number + ' ' : '') + (j.title || ''))}</div>
       <div class="segs">${ST.map((n, i) => `<i class="${j.steps[i]?.status || ''}"></i>`).join('')}</div>
       <div class="ln">${esc(j.status === 'running' || j.status === 'ci' ? (j.last || '') : j.status === 'failed' ? j.err : j.status === 'stopped' ? (j.cur?.verdict?.reason || '') : '')}</div>
       <div class="tm">${j.t0 ? mmss((j.t1 || Date.now()) - j.t0) : 'waiting'}</div></div>`; }).join('')}</div>`
     : '<div class="empty">Nothing running. Open a repo, scan it, then send issues here with <b>Work on it</b>. Several can run at once.</div>';
   document.querySelectorAll('[data-stop]').forEach(b => b.onclick = (e) => { e.stopPropagation(); stopJob(JOBS[b.dataset.stop]); });
+  document.querySelectorAll('[data-pu]').forEach(b => b.onclick = (e) => { e.stopPropagation(); go(b.dataset.pu); });
   document.querySelectorAll('[data-rm]').forEach(b => b.onclick = async (e) => {
     e.stopPropagation(); const j = JOBS[b.dataset.rm];
     if (!await ask({ title: 'Remove this run?', text: 'Its branch and files stay in ~/contrib.', ok: 'Remove', danger: 1 })) return;
@@ -508,7 +550,7 @@ function renderBoard() {
 }
 function showBoard() { $('#board').style.display = 'block'; J.forEach(j => j.view.style.display = 'none'); renderBoard(); }
 function openJob(j) { show('forge'); $('#board').style.display = 'none'; J.forEach(x => x.view.style.display = x === j ? 'block' : 'none'); paint(j); }
-setInterval(() => { Object.values(JOBS).forEach(j => (j.status === 'running' || j.status === 'ci') && paint(j)); if ($('#p-forge').classList.contains('on') && $('#board').style.display !== 'none') renderBoard(); }, 1000);
+setInterval(() => { Object.values(JOBS).forEach(j => (j.status === 'running' || j.status === 'ci') && paint(j)); if (!msOpen && $('#p-forge').classList.contains('on') && $('#board').style.display !== 'none') renderBoard(); }, 1000);
 
 function renderJobView(j) {
   j.view.innerHTML = `<div class="forge-h">${j.kind === 'ideas' ? '' : `<span class="back">${ic('back')} Forge</span>`}<b><span class="mono">${esc(j.name)}</span></b><span class="d cnt"></span></div>
@@ -569,7 +611,7 @@ function renderPane(j) {
     p.querySelectorAll('.adv').forEach(b => b.onclick = () => gc.open({ url: `https://github.com/${j.repo}/security/advisories/new` }));
     p.querySelectorAll('[data-i]').forEach(b => b.onclick = () => { const x = items[+b.dataset.i];
       const ex = J.find(q => q.repo === j.repo && q.idea?.title === x.title && !['failed', 'stopped', 'paused'].includes(q.status));
-      sentBtn(b, ex || addJob({ kind: 'fix', repo: j.repo, title: x.title, idea: { title: x.title, body: `${x.pitch || x.why}\n\nEvidence: ${x.evidence || ''}\n\nApproach: ${x.change}\n\nImpact: ${x.impact || ''}` } })); });
+      sentBtn(b, ex || addJob({ kind: 'fix', repo: j.repo, title: x.title, idea: { title: x.title, body: `${x.pitch || x.why}\n\nEvidence: ${x.evidence || ''}\n\nApproach: ${x.change}\n\nImpact: ${x.impact || ''}` } })); if (!ex) setTimeout(() => sentIdea(j.repo, x.title), 700); });
     return;
   }
   if (j.kind === 'feedback') return renderFollow(j);
