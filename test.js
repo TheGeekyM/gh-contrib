@@ -21,3 +21,13 @@ assert.strictEqual(g.lastJson('analysis {x}\n{"verdict":"skip","slice":{"title":
 assert(g.prBlocked({ permissions: { push: false }, pull_request_creation_policy: 'collaborators_only' }));
 assert(!g.prBlocked({ permissions: { push: true }, pull_request_creation_policy: 'collaborators_only' }) && !g.prBlocked({ pull_request_creation_policy: 'all' }));
 console.log('ok access');
+
+const pool = [{ title: 'Add a transactional outbox so jobs dispatched inside a transaction are never lost', reason: 'declined' }];
+assert(g.matchIdea('Transactional outbox so jobs dispatched in a transaction are never lost', pool));
+assert(!g.matchIdea('Add query duplicate detection to the profiler', pool) && !g.matchIdea('x', []));
+console.log('ok match');
+
+assert.strictEqual(g.rejectKind('Taylor closed the near-identical PR #59553, citing framework scope'), 'declined');
+assert.strictEqual(g.rejectKind('needs a new public API and maintainer design sign-off'), 'toobig');
+assert.strictEqual(g.rejectKind('A similar PR (#1 "x") was closed without being merged.'), 'declined');
+console.log('ok kind');

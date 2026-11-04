@@ -15,4 +15,10 @@ const rateOk = (times, cap, now = Date.now()) => !cap || (times || []).filter(t 
 // last line-leading JSON object of a model answer (the object may nest, so not lastIndexOf('{'))
 const lastJson = (raw) => JSON.parse(raw.slice(raw.lastIndexOf('\n{') + 1 || raw.indexOf('{')));
 const prBlocked = (j) => !j.permissions?.push && j.pull_request_creation_policy === 'collaborators_only';
-module.exports = { lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };
+// fuzzy "same idea?" by shared words; pool = [{title, reason}] -> first match or null
+const WORDS = (s) => new Set(String(s).toLowerCase().match(/[a-z0-9]{3,}/g) || []);
+const similar = (a, b) => { const x = WORDS(a), y = WORDS(b); if (!x.size || !y.size) return 0; let n = 0; x.forEach(w => y.has(w) && n++); return n / (x.size + y.size - n); };
+const matchIdea = (title, pool, min = 0.6) => (pool || []).find(p => similar(title, p.title) >= min) || null;
+// why was an idea rejected? 'declined' = maintainers said no / duplicate (permanent); 'toobig' = needs design sign-off (a smaller slice may still work)
+const rejectKind = (reason) => /\b(closed|declined|rejected|won'?t accept|out of scope|not wanted)\b/i.test(reason) ? 'declined' : /design|sign-?off|public api|cross-cutting|too big|approval|redesign|new contract/i.test(reason) ? 'toobig' : 'declined';
+module.exports = { rejectKind, similar, matchIdea, lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };

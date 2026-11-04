@@ -118,8 +118,9 @@ ipcMain.handle('suggest', async (e, { languages, minStars = 5000 }) => {
     out.push(...r);
   }
   const flagged = await Promise.all(out.map(async r => ({ ...r, policy: policyOf(await docs(r.fullName)) })));
-  const closed = new Set((await Promise.all(flagged.filter(r => !r.policy.length).map(async r => (await access(r.fullName)).blocked ? r.fullName : null))).filter(Boolean));
-  return { ok: flagged.filter(r => !r.policy.length && !closed.has(r.fullName)), hidden: flagged.filter(r => r.policy.length || closed.has(r.fullName)).map(r => r.fullName) };
+  const ok = flagged.filter(r => !r.policy.length);
+  await Promise.all(ok.map(async r => { r.noPr = (await access(r.fullName)).blocked; })); // flagged, not hidden: you can still read and scan them
+  return { ok, hidden: flagged.filter(r => r.policy.length).map(r => r.fullName) };
 });
 
 // ---- scan: unassigned good-first / help-wanted issues with no open PR mentioning them ----
@@ -144,18 +145,22 @@ ipcMain.handle('scan', async (e, repo) => {
 });
 
 // ---- ideas: features + security, one read-only model pass. Security items are never filed publicly ----
-ipcMain.handle('ideas', async (e, { repo, job }) => {
+ipcMain.handle('ideas', async (e, { repo, job, rejected = [] }) => {
   aborted.delete(job);
   const step = (i, status, detail = '') => e.sender.send('step', { job, i, status, detail });
   const log = (t) => e.sender.send('log', { job, t: t + '\n' });
   let i = 0;
   try {
+    if ((await access(repo)).blocked) throw new Error(prBlockedMsg(repo).replace(' Nothing was started.', '') + ' Ideas are turned off for it.');
     step(i = 0, 'run'); log(`Reading ${repo} metadata and open issues…`);
     const [meta, issues] = await Promise.all([
       gh('repo', 'view', repo, '--json', 'description,primaryLanguage,stargazerCount,url'),
       gh('issue', 'list', '-R', repo, '-L', '40', '--json', 'number,title,labels'),
     ]);
-    step(0, 'done', `${JSON.parse(issues).length} open issues listed`);
+    // PRs maintainers closed without merging: ideas like these are not wanted
+    const declined = JSON.parse(await gh('pr', 'list', '-R', repo, '-s', 'closed', '-L', '60', '--json', 'number,title,mergedAt').catch(() => '[]'))
+      .filter(p => !p.mergedAt).map(p => ({ title: p.title, reason: `A similar PR (#${p.number} "${p.title}") was closed without being merged.` }));
+    step(0, 'done', `${JSON.parse(issues).length} open issues, ${declined.length} declined PRs listed`);
     step(i = 1, 'run'); const dir = path.join(WORK, '_read', repo.replace('/', '__'));
     const okDir = fs.existsSync(dir) && await git(dir, 'rev-parse', '--verify', 'HEAD').then(() => true).catch(() => false);
     if (!okDir) { // atomic: clone to .partial, then rename, so a stopped run never leaves a broken folder behind
@@ -170,13 +175,17 @@ Propose 6 ideas with a deliberate MIX: at least 2 ambitious new features or capa
 and others as you see fit (architecture, testing infrastructure, integrations, better defaults, observability). Risk may be low, medium or high; do NOT bias toward safe ones.
 Ground every idea in evidence: a gap, limitation, repeated pattern, TODO or recurring open issue that you actually saw in the code or issues (cite paths / issue numbers).
 Never invent APIs or files; if unsure say so in "evidence". Skip anything already covered by an open issue unless you would take it much further.
+DO NOT propose anything that was already rejected or declined (listed below), or a near-identical variant of it. Maintainers closed those without merging; propose something different.
 Reply with ONLY a JSON array (no prose before or after), each item:
 {"title":"short imperative title","kind":"feature|performance|dx|architecture|tooling|testing|docs","pitch":"1-2 sentences: what users get and why they would love it","evidence":"what you saw in the code/issues, with paths","change":"the approach: files to touch, the public API sketch, how it fits the architecture","impact":"who benefits and how much","risk":"low|medium|high","effort":"hours|days|weeks","security":false}
 Set "security":true for any suspected vulnerability and put NO exploit details: only "report privately via SECURITY.md" in "pitch".
 
-${meta}\nOpen issues: ${issues}`, { cwd: dir, read: true, onLog: log, job });
-    step(2, 'done', 'analysed'); step(i = 3, 'done', 'ideas ready');
-    return out;
+${meta}\nOpen issues: ${issues}\n\nALREADY REJECTED OR DECLINED (do not propose again):\n${[...rejected, ...declined].slice(0, 80).map(x => '- ' + x.title).join('\n') || '(none)'}`, { cwd: dir, read: true, onLog: log, job });
+    step(2, 'done', 'analysed');
+    let out2 = out; // second line of defence: flag any proposed idea that matches a rejected idea or a declined PR
+    try { const list = JSON.parse(out.slice(out.indexOf('['), out.lastIndexOf(']') + 1)), pool = [...rejected, ...declined];
+      list.forEach(x => { const h = G.matchIdea(x.title, pool); if (h) { x.rejected = h.reason; x.rejectedKind = h.kind || 'declined'; log(`Rejected automatically: "${x.title}": ${h.reason}`); } }); out2 = JSON.stringify(list); } catch {} step(i = 3, 'done', 'ideas ready');
+    return out2;
   } catch (err) { step(i, 'fail', err.message.slice(0, 60)); log('FAILED: ' + err.message); throw err; }
 });
 
@@ -319,14 +328,14 @@ DIFF:\n${patch}`, { cwd: dir, edit: true, onLog: log, job });
       if (!tr0.ok) log(`Tests did not pass: ${tr0.reason}`);
     }
     const tr = ck.testRun;
-    step(7, tr.ok ? 'done' : 'fail', tr.ok ? 'passed' : tr.reason); chk(job);
+    step(7, tr.ok || tr.env ? 'done' : 'fail', tr.ok ? 'passed' : tr.env ? 'skipped here, project CI will run them' : tr.reason); chk(job);
 
     // step 8: with auto on and everything green, commit and open the PR. Any guard that trips falls back to your review.
     const res = { dir, branch, def, direct, issue: task, verdict: v, tests, testCmd: tr.cmd, testsOk: tr.ok };
     if (ck.prUrl) { step(8, 'done', 'PR opened'); return { ...res, pr: ck.prUrl }; }
-    const asDraft = !tr.ok && tr.env; // tests could not run on this machine: open as a draft and let the project's CI run them
-    if (auto && tests.length && (tr.ok || asDraft)) {
-      step(i = 8, 'run', asDraft ? 'opening draft PR…' : 'opening PR…'); log(asDraft ? `Tests could not run here (${tr.reason}). Opening a DRAFT PR so the project's CI runs them.` : 'Tests passed: drafting the description and opening the PR…');
+    const asDraft = !tr.ok && (tr.env || !tests.length); // tests could not be run (or written) here: open as a draft and let the project's CI check it
+    if (auto && (tr.ok || asDraft)) {
+      step(i = 8, 'run', asDraft ? 'opening draft PR…' : 'opening PR…'); log(asDraft ? `Tests could not be run here (${tr.reason}). Opening a DRAFT PR so the project's CI checks it.` : 'Tests passed: drafting the description and opening the PR…');
       try {
         const dr = await makeDraft({ dir, number, issue: task, tests, testCmd: tr.cmd, job });
         const url = await shipPr({ repo, dir, branch, def, direct, title: dr.title, body: dr.body, user, draft: asDraft });
@@ -378,8 +387,11 @@ const authorOf = (dir) => git(dir, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>')
 // write access? and does the repo accept PRs from non-collaborators? (anthropics/claude-code: collaborators_only)
 async function access(repo) {
   const j = JSON.parse(await gh('api', `repos/${repo}`).catch(() => '{}'));
-  return { direct: !!j.permissions?.push, blocked: G.prBlocked(j) };
+  const direct = !!j.permissions?.push, blocked = G.prBlocked(j) || (!direct && !!j.archived);
+  return { direct, blocked, why: j.archived ? `${repo} is archived (read-only).` : prBlockedMsg(repo) };
 }
+ipcMain.handle('access', (e, repo) => access(repo));
+ipcMain.handle('rejectKind', (e, reason) => G.rejectKind(reason));
 const prBlockedMsg = (repo) => `${repo} only accepts pull requests from collaborators (its "pull request creation" setting), so GitHub rejects PRs from your account. Nothing was started. Skip this repo or ask the maintainers for access.`;
 async function shipPr({ repo, dir, branch, def, direct, title, body, user, draft }) {
   const prs = readJson('prs.json', {}), cap = readJson('settings.json', {}).prCap ?? 3;
@@ -425,6 +437,8 @@ function detectTests(dir, files) {
       cmd: deps.vitest ? `npx vitest run ${q(files)}` : deps.jest ? `npx jest ${q(files)}` : pj.scripts?.test ? 'npm test' : null };
   }
   if (['pyproject.toml', 'pytest.ini', 'setup.cfg', 'tox.ini', 'requirements.txt'].some(has)) return { install: '', cmd: `python3 -m pytest -q ${q(files)}` };
+  // plain unittest suites (often in a sub-folder like scripts/tests): run each test file from the folder above its tests/ dir
+  const py = files.filter(f => /\.py$/.test(f)); if (py.length) return { install: '', cmd: py.map(f => `(cd ${q([path.dirname(path.dirname(f))])} && python3 -m unittest discover -s tests -p ${q([path.basename(f)])})`).join(' && ') };
   return null;
 }
 const TEST_RE = /(^|\/)(tests?|spec|__tests__)\/|[._-](test|spec)\.|Test\.(php|java|cs)$/i;

@@ -59,7 +59,7 @@ button.ld::after{content:'';position:absolute;left:50%;top:50%;width:14px;height
 details summary{cursor:pointer;color:var(--dim);margin:10px 0 6px}
 
 .badge{margin-left:auto;background:rgba(255,255,255,.1);border-radius:999px;padding:1px 8px;font-size:11px}.item.on .badge{background:rgba(0,0,0,.15)}
-.item .x{margin-left:auto;opacity:0;padding:0 4px}.item:hover .x{opacity:.6}.item .x:hover{opacity:1}.item small{margin-left:auto;color:var(--ok);font-size:10px}
+.item .x{margin-left:auto;opacity:0;padding:0 4px}.item:hover .x{opacity:.6}.item .x:hover{opacity:1}.item small+small{margin-left:6px}.item small{margin-left:auto;color:var(--ok);font-size:10px}
 .sec .plus{float:right;cursor:pointer;color:var(--acc);font-size:15px;line-height:10px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
 .tile{cursor:pointer;margin:0;transition:transform .15s,border-color .15s}.tile:hover{transform:translateY(-2px);border-color:rgba(142,198,255,.45)}
@@ -115,6 +115,10 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
 .tile.t-wait{background:linear-gradient(160deg,rgba(170,170,170,.08),#111 60%)}.tile.t-prog{background:linear-gradient(160deg,rgba(142,198,255,.14),#111 65%);border-color:rgba(142,198,255,.3)}
 .tile.t-stop{background:linear-gradient(160deg,rgba(255,150,150,.12),#111 65%)}.tile.t-ready{background:linear-gradient(160deg,rgba(255,210,122,.11),#111 65%)}
 .tile.t-done{background:linear-gradient(160deg,rgba(150,230,190,.16),#111 65%);border-color:rgba(123,224,176,.3)}.tile.t-skip{background:linear-gradient(160deg,rgba(201,160,255,.09),#111 65%)}
+.rej{margin-top:14px}.rej summary{cursor:pointer;color:#ff9b9b;font-size:12px;display:flex;align-items:center;gap:6px}
+.card.rj{opacity:.75;border-color:rgba(255,107,107,.3);background:linear-gradient(160deg,rgba(255,107,107,.08),#111 65%);margin-top:8px}.rj h4{margin:0 0 4px;font-size:13px}.rj .why{color:#d9a0a0;font-size:12px;line-height:1.5}
+.blkb{margin:0 0 10px;display:flex;gap:8px;align-items:center}
+.seg .chipb b{background:rgba(255,255,255,.1);border-radius:999px;padding:0 7px;font-size:11px;font-weight:600}.seg .chipb b:empty{display:none}.seg .chipb.on b{background:rgba(142,198,255,.22)}
 </style>
 <div id="tabs"><span class="on">Dashboard</span><span id="tw">GitHub</span></div>
 <div id="hdr"><span class="logo" data-ic="git-branch"></span><b>gh-contrib</b><span id="crumb">› pick a repo</span><span id="chip">not signed in</span></div>
@@ -165,6 +169,7 @@ function ask({ title, text, ok = 'Confirm', danger }) {
   });
 }
 const IC = {
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
   user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   compass: '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/>',
@@ -216,7 +221,7 @@ async function account() {
   $('#sw').onclick = () => { gc.login(); $('#acct').insertAdjacentHTML('beforeend', '<div class="d">Finish in the terminal, then <a href="#" id="rf">refresh</a>.</div>'); $('#rf').onclick = () => account(); };
 }
 (async () => {
-  S = await gc.settingsGet(); CACHE = await gc.cacheGet(); restoreJobs(await gc.jobsGet()); S.max = S.max || 3; $('#max').value = S.max; $('#auto').checked = S.auto !== false; $('#prcap').value = S.prCap ?? 3; paintIcons(); S.languages = S.languages.length ? S.languages : ['PHP', 'JavaScript']; drawFilters(); account().then(() => { Object.keys(R).forEach(r => refreshDone(r, true)); pump(); });
+  S = await gc.settingsGet(); CACHE = await gc.cacheGet(); for (const [rp, v] of Object.entries(CACHE)) for (const x of v.rejected || []) if (!x.kind) { x.kind = await gc.rejectKind(x.reason); gc.cacheSet({ repo: rp, key: 'rejected', value: v.rejected }); } restoreJobs(await gc.jobsGet()); S.max = S.max || 3; $('#max').value = S.max; $('#auto').checked = S.auto !== false; $('#prcap').value = S.prCap ?? 3; paintIcons(); S.languages = S.languages.length ? S.languages : ['PHP', 'JavaScript']; drawFilters(); account().then(async () => { for (const r of Object.keys(R)) await checkAccess(r); Object.keys(R).forEach(r => refreshDone(r, true)); pump(); });
   (S.repos || (S.repo ? [S.repo] : [])).forEach(r => { try { openRepo(r, false, true); } catch {} });
   if (active) show('acct');
   renderBoard();
@@ -228,22 +233,23 @@ $('#max').onchange = () => { S.max = Math.max(1, Math.min(8, +$('#max').value ||
 // ---------- repos: many open at once, each with its own scan ----------
 const normRepo = (v) => { const r = String(v || '').trim().replace(/^.*github\.com\//, '').replace(/\.git$/, '').replace(/^\/|\/$/g, '').split('/').slice(0, 2).join('/'); if (!/^[\w.-]+\/[\w.-]+$/.test(r)) throw new Error('Enter a repo as owner/name, e.g. laravel/framework (or pick one in Find repos).'); return r; };
 function renderRepoList() {
-  $('#repolist').innerHTML = Object.keys(R).map(r => { const n = J.filter(j => j.repo === r && (j.status === 'running' || j.status === 'queued' || j.status === 'ci')).length;
-    return `<div class="item ritem ${r === active ? 'on' : ''}" data-r="${esc(r)}"><i>${ic('git-branch')}</i>${esc(r)}${R[r].needs ? `<small style="color:#ffb86b">${R[r].needs} repl${R[r].needs > 1 ? 'ies' : 'y'}</small>` : ''}${n ? `<small>${n} running</small>` : ''}<span class="x" data-x="${esc(r)}" title="Close">${ic('x')}</span></div>`; }).join('') || '<div class="d" style="padding:4px 20px;font-size:11px">none yet</div>';
+  $('#repolist').innerHTML = Object.keys(R).map(r => { const n = J.filter(j => j.repo === r && (j.status === 'running' || j.status === 'queued' || j.status === 'ci')).length, dn = J.filter(j => j.repo === r && j.status === 'done' && j.kind !== 'ideas').length;
+    return `<div class="item ritem ${r === active ? 'on' : ''}" data-r="${esc(r)}"><i>${ic('git-branch')}</i>${esc(r)}${R[r].blocked ? `<small style="color:#ff9b9b" title="${esc(R[r].blocked)}">no PRs</small>` : ''}${R[r].needs ? `<small style="color:#ffb86b">${R[r].needs} repl${R[r].needs > 1 ? 'ies' : 'y'}</small>` : ''}${n ? `<small>${n} running</small>` : ''}${dn ? `<small style="color:var(--ok)">${dn} done</small>` : ''}<span class="x" data-x="${esc(r)}" title="Close">${ic('x')}</span></div>`; }).join('') || '<div class="d" style="padding:4px 20px;font-size:11px">none yet</div>';
   document.querySelectorAll('.ritem').forEach(i => i.onclick = (e) => { if (e.target.dataset.x) return closeRepo(e.target.dataset.x); activateRepo(i.dataset.r); });
 }
 function openRepo(repo, scanNow, quiet) {
   repo = normRepo(repo);
   if (!R[repo]) {
     const el = document.createElement('div'); el.style.display = 'none';
-    el.innerHTML = `<div class="seg"><span class="chipb on" data-t="issues">${ic('issues')}Issues</span><span class="chipb" data-t="ideas">${ic('sparkles')}Ideas</span><span class="chipb" data-t="done">${ic('check')}Done<b class="dn"></b></span><button class="g clr" style="margin-left:auto;padding:4px 12px" title="Forget the saved results of this tab">${ic('x')} Clear</button></div>
-      <div class="sc">${PH_ISSUES(repo)}</div><div class="idv" style="display:none">${PH_IDEAS}</div><div class="dv" style="display:none"><div class="empty">Loading…</div></div>`;
-    $('#scanout').append(el); R[repo] = { el, sc: el.querySelector('.sc'), idv: el.querySelector('.idv'), dv: el.querySelector('.dv'), needs: 0 };
+    el.innerHTML = `<div class="seg"><span class="chipb on" data-t="issues">${ic('issues')}Issues<b class="c-issues"></b></span><span class="chipb" data-t="ideas">${ic('sparkles')}Ideas<b class="c-ideas"></b></span><span class="chipb" data-t="done">${ic('check')}Done<b class="c-done"></b></span><span class="chipb" data-t="rejected">${ic('flag')}Rejected<b class="c-rejected"></b></span><button class="g clr" style="margin-left:auto;padding:4px 12px" title="Forget the saved results of this tab">${ic('x')} Clear</button></div>
+      <div class="sc">${PH_ISSUES(repo)}</div><div class="idv" style="display:none">${PH_IDEAS}</div><div class="dv" style="display:none"><div class="empty">Loading…</div></div><div class="rv" style="display:none"></div>`;
+    $('#scanout').append(el); R[repo] = { el, sc: el.querySelector('.sc'), idv: el.querySelector('.idv'), dv: el.querySelector('.dv'), rv: el.querySelector('.rv'), needs: 0 };
+    checkAccess(repo); setTimeout(() => paintRej(repo), 0);
     el.querySelectorAll('[data-t]').forEach(c => c.onclick = () => setTab(repo, c.dataset.t));
     el.querySelector('.clr').onclick = () => {
       if (R[repo].tab === 'done') { const b = el.querySelector('.clr'); b.classList.add('ld'); return refreshDone(repo, true).finally(() => b.classList.remove('ld')); }
       const r = R[repo], issues = (r.tab || 'issues') === 'issues';
-      gc.cacheSet({ repo, key: issues ? 'scan' : 'ideas', value: null });
+      setCnt(repo, issues ? 'issues' : 'ideas', 0); gc.cacheSet({ repo, key: issues ? 'scan' : 'ideas', value: null });
       if (CACHE[repo]) delete CACHE[repo][issues ? 'scan' : 'ideas'];
       if (issues) r.sc.innerHTML = PH_ISSUES(repo); else { r.idv.innerHTML = PH_IDEAS; r.ideas = null; }
     };
@@ -254,11 +260,13 @@ function openRepo(repo, scanNow, quiet) {
   else renderRepoList();
   if (scanNow) doScan(repo);
 }
+const setCnt = (repo, tab, n, html) => { const b = R[repo]?.el.querySelector('.c-' + tab); if (b) b.innerHTML = n || html ? ` ${n}${html || ''}` : ''; };
 function setTab(repo, t) {
-  const r = R[repo]; r.tab = t; r.sc.style.display = t === 'issues' ? 'block' : 'none'; r.idv.style.display = t === 'ideas' ? 'block' : 'none'; r.dv.style.display = t === 'done' ? 'block' : 'none';
+  const r = R[repo]; r.tab = t; r.sc.style.display = t === 'issues' ? 'block' : 'none'; r.idv.style.display = t === 'ideas' ? 'block' : 'none'; r.dv.style.display = t === 'done' ? 'block' : 'none'; r.rv.style.display = t === 'rejected' ? 'block' : 'none'; r.el.querySelector('.clr').style.display = t === 'rejected' ? 'none' : '';
   r.el.querySelectorAll('[data-t]').forEach(c => c.classList.toggle('on', c.dataset.t === t));
   r.el.querySelector('.clr').innerHTML = t === 'done' ? ic('clock') + ' Refresh' : ic('x') + ' Clear';
   if (t === 'done') refreshDone(repo);
+  if (t === 'rejected') paintRej(repo);
 }
 // ---- Done: my PRs in this repo with CI checks and replies on me ----
 async function refreshDone(repo, force) {
@@ -267,7 +275,7 @@ async function refreshDone(repo, force) {
   if (!r.done) r.dv.innerHTML = '<div class="empty">Loading your PRs…</div>';
   try {
     r.done = await gc.prs({ repo, login: me.login }); r.doneAt = Date.now();
-    r.needs = r.done.filter(x => x.needs).length; r.el.querySelector('.dn').textContent = r.needs ? ' ' + r.needs : ''; renderRepoList();
+    r.needs = r.done.filter(x => x.needs).length; setCnt(repo, 'done', r.done.length, r.needs ? ` <i style="color:#ffb86b;font-style:normal" title="need your reply">· ${r.needs} ✉</i>` : ''); renderRepoList();
     const stc = { OPEN: 'c-running', MERGED: 'c-done', CLOSED: 'c-failed' };
     r.dv.innerHTML = `<div class="res-h" style="margin-top:0"><b style="color:var(--ink)">${r.done.length} PR${r.done.length === 1 ? '' : 's'}</b><span>by ${esc(me.login)} in ${esc(repo)} · checked ${agoT(r.doneAt)}</span></div>`
       + (r.done.length ? `<div class="ideas">${r.done.map((x, n) => { const human = x.replies.filter(y => !y.bot), k = x.checks;
@@ -288,7 +296,30 @@ function restoreIdeas(repo, c) {
   const r = R[repo], j = { id: 'j' + (++jid), kind: 'ideas', repo, steps: IDEA_STEPS.map(() => ({ status: 'done' })), log: c.log || '', status: 'review', t0: c.at, t1: c.at, result: c.result, name: `${repo} · ideas` };
   j.view = document.createElement('div'); r.idv.innerHTML = ''; r.idv.append(j.view); JOBS[j.id] = j; r.ideas = j; renderJobView(j);
 }
-function runIdeas(repo) { // stays on the repo page; only an implementation is sent to Forge
+// remember a rejected idea (with why) so it is never proposed or built again; also marks it in the saved ideas list
+async function addRejected(repo, title, reason, kind) {
+  const c = (CACHE[repo] ||= {}), list = (c.rejected ||= []); kind = kind || await gc.rejectKind(reason);
+  if (!list.some(x => x.title === title)) { list.push({ title, reason, kind, at: Date.now() }); gc.cacheSet({ repo, key: 'rejected', value: list }); }
+  markIdea(repo, title, reason, kind); paintRej(repo); renderBoard();
+}
+// flag (or un-flag, reason = null) one idea inside the saved ideas list and redraw it
+function markIdea(repo, title, reason, kind) {
+  const c = CACHE[repo]; if (!c?.ideas?.result) return;
+  try { const a = c.ideas.result, arr = JSON.parse(a.slice(a.indexOf('['), a.lastIndexOf(']') + 1));
+    arr.forEach(x => { if (x.title === title) { if (reason) { x.rejected = reason; x.rejectedKind = kind; } else { delete x.rejected; delete x.rejectedKind; } } });
+    c.ideas.result = JSON.stringify(arr); gc.cacheSet({ repo, key: 'ideas', value: c.ideas });
+    const j = R[repo]?.ideas; if (j && j.status === 'review') { j.result = c.ideas.result; renderPane(j); } } catch {}
+}
+const rejOf = (j) => (CACHE[j.repo]?.rejected || []).find(x => x.title === j.idea?.title);
+const RK = { declined: ['c-failed', 'Declined'], toobig: ['c-stopped', 'Too big'] };
+// rejected ideas live in the repo's Rejected tab, flagged with why
+function paintRej(repo) {
+  const r = R[repo]; if (!r) return; const el = r.rv, list = CACHE[repo]?.rejected || []; setCnt(repo, 'rejected', list.length);
+  el.innerHTML = list.length ? `<div class="res-h" style="margin-top:0"><b style="color:var(--ink)">${list.length} not implemented</b><span>rejected ideas are never proposed or built again</span></div><div class="ideas">${list.map((x, n) => `<div class="card idea rj"><div style="display:flex;gap:8px;align-items:center"><h4 style="margin:0">${esc(x.title)}</h4><span class="chip ${(RK[x.kind] || RK.declined)[0]}">${ic('flag')}${(RK[x.kind] || RK.declined)[1]}</span></div><div class="why">${esc(x.reason)}</div><div class="ract"><button class="g" data-al="${n}">${ic('play')} Allow again</button></div></div>`).join('')}</div>` : '<div class="empty">Nothing rejected yet. Ideas that maintainers declined, or that are too big for a first PR, show up here with the reason.</div>';
+  el.querySelectorAll('[data-al]').forEach(b => b.onclick = () => { const x = list.splice(+b.dataset.al, 1)[0]; gc.cacheSet({ repo, key: 'rejected', value: list }); markIdea(repo, x.title, null); paintRej(repo); renderBoard(); });
+}
+function runIdeas(repo) {
+  if (R[repo]?.blocked) { $('#rerr').textContent = R[repo].blocked + ' Ideas are turned off here.'; return setTab(repo, 'issues'); } // stays on the repo page; only an implementation is sent to Forge
   const r = R[repo]; if (r.ideas?.status === 'running') return setTab(repo, 'ideas');
   const j = { id: 'j' + (++jid), kind: 'ideas', repo, steps: [], log: '', status: 'queued', t0: 0, t1: 0, name: `${repo} · ideas` };
   j.view = document.createElement('div'); r.idv.innerHTML = ''; r.idv.append(j.view); JOBS[j.id] = j; r.ideas = j;
@@ -299,6 +330,11 @@ function activateRepo(repo) {
   for (const k in R) R[k].el.style.display = k === repo ? 'block' : 'none';
   renderRepoList(); show('repo');
 }
+// a repo that can't take our PRs (collaborators-only, archived): keep it, but warn and lock the Implement buttons
+const checkAccess = async (repo) => { try { const a = await gc.access(repo), r = R[repo]; if (a.blocked && r && !r.blocked) {
+  r.blocked = a.why; r.el.classList.add('blk'); r.el.insertAdjacentHTML('afterbegin', `<div class="w blkb">${ic('alert')} ${esc(a.why)} Ideas are turned off for this repo. Issues are still scannable, but GitHub will refuse the PR, so ask the maintainers for access first.</div>`);
+  r.el.querySelector('[data-t="ideas"]').style.display = 'none'; if (r.tab === 'ideas') setTab(repo, 'issues'); r.idv.innerHTML = ''; r.ideas = null;
+  for (const k of ['ideas', 'rejected']) gc.cacheSet({ repo, key: k, value: null }); if (CACHE[repo]) { delete CACHE[repo].ideas; delete CACHE[repo].rejected; } renderRepoList(); } } catch {} };
 function closeRepo(repo) {
   R[repo].el.remove(); delete R[repo]; S.repos = (S.repos || []).filter(r => r !== repo); gc.settingsSet(S);
   if (active === repo) { active = null; const n = Object.keys(R)[0]; if (n) activateRepo(n); else { $('#repo').value = ''; $('#crumb').textContent = '› pick a repo'; } }
@@ -324,7 +360,7 @@ $('#sug').onclick = async () => {
     out.innerHTML = r.ok.map(x => { const [o, n] = x.fullName.split('/'), h = hue(x.fullName);
       return `<div class="card repo"><div class="rtop"><div class="av" style="--a:hsl(${h} 80% 72%);--b:hsl(${(h + 50) % 360} 80% 62%)">${esc(n[0].toUpperCase())}</div><div class="rn"><small>${esc(o)}</small><b>${esc(n)}</b></div></div>
         <div class="rd" title="Click to expand">${esc(x.description || 'No description')}</div>
-        <div class="rs"><span class="pill">${ic('star')}${kfmt(x.stargazersCount)}</span><span class="pill">${ic('issues')}${kfmt(x.openIssuesCount)} open</span>${x.language ? `<span class="pill"><i class="ldot" style="--c:${LANGCOL[x.language] || '#888'}"></i>${esc(x.language)}</span>` : ''}</div>
+        <div class="rs">${x.noPr ? `<span class="pill warn" title="Only collaborators can open PRs here">${ic('alert')}no PRs</span>` : ''}<span class="pill">${ic('star')}${kfmt(x.stargazersCount)}</span><span class="pill">${ic('issues')}${kfmt(x.openIssuesCount)} open</span>${x.language ? `<span class="pill"><i class="ldot" style="--c:${LANGCOL[x.language] || '#888'}"></i>${esc(x.language)}</span>` : ''}</div>
         <div class="ract"><button data-r="${esc(x.fullName)}" class="${opened(x.fullName) ? 'g' : ''}">${opened(x.fullName) ? ic('check') + 'Opened' : ic('git-branch') + 'Open repo'}</button><button class="g" data-g="${esc(x.url)}">${ic('ext')}GitHub</button></div></div>`; }).join('')
       || '<div class="empty" style="grid-column:1/-1">Nothing matched. Try fewer stars or more languages.</div>';
     out.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { openRepo(b.dataset.r, true); b.className = 'g'; b.innerHTML = ic('check') + 'Opened'; });
@@ -343,7 +379,7 @@ async function doScan(repo, cached) {
   try {
     const r = cached ? cached.data : await gc.scan(repo), at = cached ? cached.at : Date.now();
     if (!cached) { gc.cacheSet({ repo, key: 'scan', value: { data: r, at } }); (CACHE[repo] ||= {}).scan = { data: r, at }; }
-    const ago = agoT;
+    const ago = agoT; setCnt(repo, 'issues', r.issues.length);
     el.innerHTML = `<div class="stats"><span class="pill ok">${r.issues.length} free issues</span><span class="pill" title="Saved until you rescan or clear">${ic('clock')}scanned ${ago(at)}</span>`
       + (r.policy.length ? `<span class="pill warn">${ic('alert')}AI policy: ${esc(r.policy.join(', '))}. Read first, don't submit AI-assisted work unless allowed</span>` : '')
       + (r.claimFirst ? '<span class="pill warn">Comment to get assigned before starting</span>' : '')
@@ -378,6 +414,7 @@ function restoreJobs(list) {
   jid = Math.max(jid, ...list.map(o => +String(o.id).slice(1) || 0));
   for (const o of list) {
     const j = { ...o, log: o.log || '', steps: o.steps || [] };
+    if (j.kind === 'fix' && j.idea && j.status === 'stopped' && j.cur?.verdict?.verdict === 'skip') addRejected(j.repo, j.idea.title, j.cur.verdict.reason); // runs auto-skipped before this existed
     if (j.status === 'running' || j.status === 'queued' || j.status === 'ci') { // the app was closed mid-run
       const i = j.steps.findIndex(s => s?.status === 'run'); if (i >= 0) j.steps[i] = { status: 'fail', detail: 'interrupted' };
       j.status = 'paused'; j.err = 'The app was closed while this was running.'; j.t1 = j.t1 || Date.now();
@@ -387,6 +424,7 @@ function restoreJobs(list) {
       if (!j.ck.testRun || j.ck.testRun.ok) { j.steps = j.steps.slice(0, 3); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: re-running tests and pushing the update ---\n'; }
     }
     if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && j.ck.testRun && !j.ck.testRun.ok && (j.ck.testRun.v || 0) < 3) delete j.ck.testRun; // older runner could not find the tests' runner
+    if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && j.ck.testRun && (j.ck.testRun.ok || j.ck.testRun.env || !(j.ck.tests || []).length) && !j.ck.prUrl && S.auto !== false) { j.steps = j.steps.slice(0, 8); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: opening the PR ---\n'; } // stopped before the PR was opened: finish on its own
     if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && !j.ck.testRun) { j.steps = j.steps.slice(0, 7); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: running tests and opening the PR ---\n'; }
     j.view = document.createElement('div'); j.view.className = 'jobview'; j.view.style.display = 'none'; $('#jobviews').append(j.view);
     JOBS[j.id] = j; J.push(j); renderJobView(j);
@@ -423,13 +461,13 @@ function pump() { // start queued runs (oldest first) while under the parallel l
 async function run(j) {
   j.status = 'running'; j.t0 = Date.now(); j.t1 = 0; renderPane(j); paint(j); renderBoard();
   try {
-    if (j.kind === 'ideas') { j.result = await gc.ideas({ repo: j.repo, job: j.id }); j.status = 'review'; const c = { result: j.result, log: j.log.slice(-20000), at: Date.now() }; gc.cacheSet({ repo: j.repo, key: 'ideas', value: c }); (CACHE[j.repo] ||= {}).ideas = c; }
+    if (j.kind === 'ideas') { j.result = await gc.ideas({ repo: j.repo, job: j.id, rejected: CACHE[j.repo]?.rejected || [] }); j.status = 'review'; const c = { result: j.result, log: j.log.slice(-20000), at: Date.now() }; gc.cacheSet({ repo: j.repo, key: 'ideas', value: c }); (CACHE[j.repo] ||= {}).ideas = c; }
     else if (j.kind === 'feedback') { j.cur = await gc.feedback({ repo: j.repo, number: j.number, user: me, job: j.id, ck: j.ck, auto: S.auto !== false });
       if (j.cur.pushed) { j.doneNote = 'Update pushed automatically.'; j.prUrl = (R[j.repo]?.done || []).find(x => x.number === j.number)?.url || ''; await watchCi(j); setTimeout(() => refreshDone(j.repo, true), 4000); }
       else j.status = 'review'; }
     else {
       j.cur = await gc.prepare({ repo: j.repo, number: j.number, idea: j.idea, user: me, force: j.force, job: j.id, ck: j.ck, auto: S.auto !== false });
-      if (j.cur.stopped) j.status = 'stopped';
+      if (j.cur.stopped) { j.status = 'stopped'; if (j.cur.autoSkipped && j.idea) addRejected(j.repo, j.idea.title, j.cur.verdict?.reason || 'Validation rejected it.'); }
       else if (j.cur.pr) { j.prUrl = j.cur.pr; await watchCi(j); setTimeout(() => refreshDone(j.repo, true), 4000); }
       else j.status = 'review';
     }
@@ -453,7 +491,7 @@ function renderBoard() {
   document.querySelectorAll('[data-f]').forEach(c => c.onclick = () => { const r = c.dataset.f; if (!r) fRepos.clear(); else fRepos.has(r) ? fRepos.delete(r) : fRepos.add(r); renderBoard(); });
   document.querySelectorAll('[data-st]').forEach(c => c.onclick = () => { const g = c.dataset.st; fStat.has(g) ? fStat.delete(g) : fStat.add(g); renderBoard(); });
   $('#tiles').innerHTML = L.length ? `<div class="tiles">${L.map(j => { const ST = STEPSOF(j), q = J.filter(x => x.status === 'queued').reverse().indexOf(j);
-    return `<div class="card tile t-${SG(j.status)}" data-j="${j.id}"><div class="top">${j.status === 'paused' || j.status === 'failed' ? `<input type="checkbox" data-sel="${j.id}" ${sel.has(j.id) ? 'checked' : ''} style="width:16px;height:16px;margin:0;flex:none;accent-color:#8ec6ff" title="Select">` : ''}<span class="trepo">${ic('git-branch')}${esc(j.repo)}</span><span class="chip c-${j.status}">${j.status === 'queued' ? (q + 1) + ' in line' : CHIP[j.status]}</span>${j.status === 'running' || j.status === 'queued' || j.status === 'ci' ? `<span class="tx run" data-stop="${j.id}" title="Stop">${ic('stop')}</span>` : `<span class="tx" data-rm="${j.id}" title="Remove from Forge">${ic('x')}</span>`}</div>
+    return `<div class="card tile t-${SG(j.status)}" data-j="${j.id}"><div class="top">${j.status === 'paused' || j.status === 'failed' ? `<input type="checkbox" data-sel="${j.id}" ${sel.has(j.id) ? 'checked' : ''} style="width:16px;height:16px;margin:0;flex:none;accent-color:#8ec6ff" title="Select">` : ''}<span class="trepo">${ic('git-branch')}${esc(j.repo)}</span>${R[j.repo]?.blocked ? `<span class="chip c-failed" title="${esc(R[j.repo].blocked)}">no PRs</span>` : ''}<span class="chip c-${j.status}">${j.status === 'queued' ? (q + 1) + ' in line' : CHIP[j.status]}</span>${j.status === 'stopped' && rejOf(j) ? `<span class="chip ${RK[rejOf(j).kind || 'declined'][0]}" title="${esc(rejOf(j).reason)}">${ic('flag')}${RK[rejOf(j).kind || 'declined'][1]}</span>` : ''}${j.status === 'running' || j.status === 'queued' || j.status === 'ci' ? `<span class="tx run" data-stop="${j.id}" title="Stop">${ic('stop')}</span>` : `<span class="tx" data-rm="${j.id}" title="Remove from Forge">${ic('x')}</span>`}</div>
       <div style="font-size:13px;font-weight:600;line-height:1.35;height:36px;overflow:hidden">${esc((j.number ? '#' + j.number + ' ' : '') + (j.title || ''))}</div>
       <div class="segs">${ST.map((n, i) => `<i class="${j.steps[i]?.status || ''}"></i>`).join('')}</div>
       <div class="ln">${esc(j.status === 'running' || j.status === 'ci' ? (j.last || '') : j.status === 'failed' ? j.err : j.status === 'stopped' ? (j.cur?.verdict?.reason || '') : '')}</div>
@@ -509,7 +547,7 @@ function renderPane(j) {
   }
   if (j.status === 'stopped') {
     const v = j.cur.verdict;
-    p.innerHTML = `<h3>Skipped automatically <span class="d">${esc(v.verdict)}</span></h3><div class="card"><b>${esc(v.reason)}</b><p class="d">No safe small slice was found, so this run was closed and its folder removed. Nothing was pushed.</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details><button class="recheck">Look for a smaller slice</button> <button class="g force">Build it anyway (not recommended)</button>`;
+    p.innerHTML = `<h3>Skipped automatically <span class="d">${esc(v.verdict)}</span></h3><div class="card"><b>${esc(v.reason)}</b><p class="d">No safe small slice was found, so this run was closed and its folder removed. Nothing was pushed. This idea is now marked <b>Rejected</b> on the repo page and won’t be proposed again.</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details><button class="recheck">Look for a smaller slice</button> <button class="g force">Build it anyway (not recommended)</button>`;
     p.querySelector('.recheck').onclick = () => { // re-triage with the slice-finding logic; keeps setup and issue text
       if (j.ck) delete j.ck.verdict; Object.assign(j, { status: 'queued', steps: j.steps.slice(0, 4), err: '', force: false }); j.log += '\n--- re-checking for a smaller slice ---\n'; renderPane(j); paint(j); pump();
     };
@@ -517,14 +555,15 @@ function renderPane(j) {
   }
   if (j.kind === 'ideas') {
     let items = null; try { items = JSON.parse(j.result.slice(j.result.indexOf('['), j.result.lastIndexOf(']') + 1)); } catch {}
+    if (items) setCnt(j.repo, 'ideas', items.filter(x => !x.rejected).length);
     const rk = { low: 'ok', medium: 'warn', high: 'warn' };
     const sec = (k, v) => v ? `<div><div class="k">${k}</div><p>${esc(v)}</p></div>` : '';
     p.innerHTML = `<div class="res-h" style="margin-top:0"><b style="color:var(--ink)">${items ? items.length + ' ideas' : 'Ideas'}</b><span>${esc(j.repo)} · generated ${agoT(j.t1 || Date.now())}</span><button class="g rr" style="margin-left:auto">${ic('sparkles')} Re-run</button></div>`
-      + (items ? `<div class="ideas">${items.map((x, n) => `<div class="card idea"><div class="top" style="display:flex;gap:8px;align-items:center"><h4>${esc(x.title)}</h4>${x.security ? `<span class="pill warn">${ic('shield')}security</span>` : ''}</div>
+      + (items ? `<div class="ideas">${items.map((x, n) => x.rejected ? '' : `<div class="card idea"><div class="top" style="display:flex;gap:8px;align-items:center"><h4>${esc(x.title)}</h4>${x.security ? `<span class="pill warn">${ic('shield')}security</span>` : ''}</div>
         <div class="rs">${x.kind ? `<span class="pill">${esc(x.kind)}</span>` : ''}${x.risk ? `<span class="pill ${rk[x.risk] || ''}">${esc(x.risk)} risk</span>` : ''}${x.effort ? `<span class="pill">${ic('clock')}${esc(x.effort)}</span>` : ''}</div>
         ${sec('Pitch', x.pitch || x.why)}${x.security ? '' : sec('Evidence', x.evidence) + sec('Approach', x.change) + sec('Impact', x.impact)}
         ${!x.security && (x.risk === 'high' || x.effort === 'weeks') ? `<div class="w" style="font-size:12px">${ic('alert')} Big change: open a discussion with the maintainers first, unsolicited large PRs are usually closed.</div>` : ''}
-        <div class="ract">${x.security ? `<button class="g adv">${ic('shield')}Report privately</button><span class="d" style="font-size:11px">never filed publicly</span>` : `<button data-i="${n}">${ic('flame')}Implement in Forge</button>`}</div></div>`).join('')}</div>` : `<pre style="max-height:none">${esc(j.result)}</pre>`)
+        <div class="ract">${x.security ? `<button class="g adv">${ic('shield')}Report privately</button><span class="d" style="font-size:11px">never filed publicly</span>` : `<button data-i="${n}">${ic('flame')}Implement in Forge</button>`}</div></div>`).join('')}</div>` + (items.some(x => x.rejected) ? `<div class="d" style="font-size:12px;margin-top:12px">${ic('flag')} ${items.filter(x => x.rejected).length} rejected idea(s) moved to the <b>Rejected</b> tab.</div>` : '') : `<pre style="max-height:none">${esc(j.result)}</pre>`)
       + `<details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
     p.querySelector('.rr').onclick = () => runIdeas(j.repo);
     p.querySelectorAll('.adv').forEach(b => b.onclick = () => gc.open({ url: `https://github.com/${j.repo}/security/advisories/new` }));
