@@ -167,6 +167,7 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
       <div class="card filters">
         <div class="frow"><label>Search</label><input id="fq" placeholder="a name or text, e.g. vue, markdown parser, or owner/name" style="flex:1;min-width:240px"><span class="d">Leave empty to browse popular repos by the filters below.</span></div>
         <div class="frow"><label>Language</label><span id="langchips"></span></div>
+        <div class="frow"><label>Show</label><span id="sortchips"></span></div>
         <div class="frow"><label>Min stars</label><span id="starchips"></span>
           <button class="fgo" id="sug"><span data-ic="search"></span>Find repos</button></div>
       </div>
@@ -394,6 +395,8 @@ const topErr = (fn) => async (ev) => { const b = ev?.currentTarget; b?.classList
 function drawFilters() {
   $('#langchips').innerHTML = LANGS.map(l => `<span class="chipb ${S.languages.includes(l) ? 'on' : ''}" data-l="${l}"><i class="ldot" style="--c:${LANGCOL[l] || '#888'}"></i>${l}</span>`).join(' ');
   $('#starchips').innerHTML = STARS.map(([n, t]) => `<span class="chipb ${S.minStars === n ? 'on' : ''}" data-s="${n}">${ic('star')}${t}</span>`).join(' ');
+  $('#sortchips').innerHTML = [['popular', 'Popular'], ['trending', 'Trending (30d)'], ['new', 'Newest (7d)']].map(([k, t]) => `<span class="chipb ${(S.sort || 'popular') === k ? 'on' : ''}" data-o="${k}">${t}</span>`).join(' ');
+  document.querySelectorAll('[data-o]').forEach(c => c.onclick = () => { S.sort = c.dataset.o; gc.settingsSet(S); drawFilters(); });
   document.querySelectorAll('[data-l]').forEach(c => c.onclick = () => { const l = c.dataset.l; S.languages = S.languages.includes(l) ? S.languages.filter(x => x !== l) : [...S.languages, l]; gc.settingsSet(S); drawFilters(); });
   document.querySelectorAll('[data-s]').forEach(c => c.onclick = () => { S.minStars = +c.dataset.s; gc.settingsSet(S); drawFilters(); });
 }
@@ -404,7 +407,7 @@ $('#sug').onclick = async () => {
   out.innerHTML = '<div class="skel"></div>'.repeat(6); head.textContent = 'Searching GitHub and reading each repo’s contribution docs…';
   const btn = $('#sug'); btn.disabled = true; btn.classList.add('ld');
   try {
-    const r = await gc.suggest({ languages: S.languages, minStars: S.minStars, query });
+    const r = await gc.suggest({ languages: S.languages, minStars: S.minStars, query, sort: S.sort });
     const opened = (n) => !!R[n];
     head.innerHTML = `<b style="color:var(--ink)">${r.ok.length} repos</b>` + (r.hidden.length ? `<span class="pill warn" title="${esc(r.hidden.join(', '))}">${ic('alert')}${r.hidden.length} hidden, docs mention AI</span>` : '');
     out.innerHTML = r.ok.map(x => { const [o, n] = x.fullName.split('/'), h = hue(x.fullName);

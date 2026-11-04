@@ -110,7 +110,7 @@ async function docs(repo) {
 const policyOf = (d) => G.hasPolicy(Object.fromEntries(Object.entries(d).filter(([f]) => !/SECURITY|PULL_REQUEST/.test(f))));
 
 // ---- suggestions: popular repos per language, AI-policy repos dropped ----
-ipcMain.handle('suggest', async (e, { languages, minStars = 5000, query = '' }) => {
+ipcMain.handle('suggest', async (e, { languages, minStars = 5000, query = '', sort = 'popular' }) => {
   const out = [], q = String(query || '').trim().replace(/^.*github\.com\//, '').replace(/\.git$/, '').replace(/\/+$/, '');
   const F = 'fullName,description,stargazersCount,openIssuesCount,language,url';
   if (q && /^[\w.-]+\/[\w.-]+$/.test(q)) { // an exact owner/name: fetch it directly
@@ -119,7 +119,9 @@ ipcMain.handle('suggest', async (e, { languages, minStars = 5000, query = '' }) 
   }
   if (q && !out.length) out.push(...JSON.parse(await gh('search', 'repos', ...q.split(/\s+/), '--sort', 'stars', '--limit', '24', '--archived=false', '--json', F))); // free text: ignores the language/star filters
   for (const lang of q ? [] : languages) {
-    const r = JSON.parse(await gh('search', 'repos', '--language', lang, '--stars', `>${minStars}`, '--sort', 'stars', '--limit', '15',
+    // new/trending: only repos created recently (30d / 7d), ranked by stars; the star floor is lowered since young repos are small
+    const days = { trending: 30, new: 7 }[sort], since = days && new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+    const r = JSON.parse(await gh('search', 'repos', '--language', lang, '--stars', days ? '>20' : `>${minStars}`, ...(days ? ['--created', `>${since}`] : []), '--sort', 'stars', '--limit', '15',
       '--archived=false', '--json', 'fullName,description,stargazersCount,openIssuesCount,language,url'));
     out.push(...r);
   }
