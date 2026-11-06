@@ -140,20 +140,22 @@ const policyOf = (d) => G.hasPolicy(Object.fromEntries(Object.entries(d).filter(
 // ---- suggestions: popular repos per language, AI-policy repos dropped ----
 ipcMain.handle('suggest', async (e, { languages, minStars = 5000, query = '', sort = 'popular' }) => {
   const out = [], q = String(query || '').trim().replace(/^.*github\.com\//, '').replace(/\.git$/, '').replace(/\/+$/, '');
-  const F = 'fullName,description,stargazersCount,openIssuesCount,language,url';
+  const F = 'fullName,description,stargazersCount,openIssuesCount,language,url,hasIssues';
   if (q && /^[\w.-]+\/[\w.-]+$/.test(q)) { // an exact owner/name: fetch it directly
-    const r = await gh('repo', 'view', q, '--json', 'nameWithOwner,description,stargazerCount,issues,primaryLanguage,url').then(JSON.parse).catch(() => null);
-    if (r) out.push({ fullName: r.nameWithOwner, description: r.description, stargazersCount: r.stargazerCount, openIssuesCount: r.issues?.totalCount, language: r.primaryLanguage?.name, url: r.url });
+    const r = await gh('repo', 'view', q, '--json', 'nameWithOwner,description,stargazerCount,issues,primaryLanguage,url,hasIssuesEnabled').then(JSON.parse).catch(() => null);
+    if (r) out.push({ fullName: r.nameWithOwner, description: r.description, stargazersCount: r.stargazerCount, openIssuesCount: r.issues?.totalCount, language: r.primaryLanguage?.name, url: r.url, hasIssues: r.hasIssuesEnabled });
   }
   if (q && !out.length) out.push(...JSON.parse(await gh('search', 'repos', ...q.split(/\s+/), '--sort', 'stars', '--limit', '24', '--archived=false', '--json', F))); // free text: ignores the language/star filters
   for (const lang of q ? [] : languages) {
     // new/trending: only repos created recently (30d / 7d), ranked by stars; the star floor is lowered since young repos are small
     const days = { trending: 30, new: 7 }[sort], since = days && new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
     const r = JSON.parse(await gh('search', 'repos', '--language', lang, '--stars', days ? '>20' : `>${minStars}`, ...(days ? ['--created', `>${since}`] : []), '--sort', 'stars', '--limit', '15',
-      '--archived=false', '--json', 'fullName,description,stargazersCount,openIssuesCount,language,url'));
+      '--archived=false', '--json', F));
     out.push(...r);
   }
-  const flagged = await Promise.all(out.map(async r => ({ ...r, policy: policyOf(await docs(r.fullName)) })));
+  // issues turned off: nothing to scan and no issue to link a PR to, so drop them (an exact owner/name you typed stays, flagged)
+  const keep = out.filter(r => r.hasIssues !== false || r.fullName.toLowerCase() === q.toLowerCase()).map(r => ({ ...r, noIssues: r.hasIssues === false }));
+  const flagged = await Promise.all(keep.map(async r => ({ ...r, policy: policyOf(await docs(r.fullName)) })));
   const ok = flagged.filter(r => !r.policy.length);
   await Promise.all(ok.map(async r => { r.noPr = (await access(r.fullName)).blocked; })); // flagged, not hidden: you can still read and scan them
   return { ok, hidden: flagged.filter(r => r.policy.length).map(r => r.fullName) };
@@ -164,7 +166,8 @@ ipcMain.handle('scan', async (e, repo) => {
   const d = await docs(repo);
   const seen = new Map();
   for (const label of ['good first issue', 'help wanted']) {
-    const l = JSON.parse(await gh('issue', 'list', '-R', repo, '-l', label, '-s', 'open', '-L', '20', '--json', 'number,title,assignees,url,comments,createdAt'));
+    const l = JSON.parse(await gh('issue', 'list', '-R', repo, '-l', label, '-s', 'open', '-L', '20', '--json', 'number,title,assignees,url,comments,createdAt')
+      .catch(e => { throw new Error(/disabled issues/i.test(e.message) ? `${repo} has issues turned off, so there are no issues to scan. Use Ideas instead.` : e.message); }));
     l.filter(i => !i.assignees.length).forEach(i => seen.set(i.number, { ...i, label }));
   }
   const issues = [...seen.values()].slice(0, 15);
@@ -191,7 +194,7 @@ ipcMain.handle('ideas', async (e, { repo, job, login, rejected = [] }) => {
     step(i = 0, 'run'); log(`Reading ${repo} metadata and open issues…`);
     const [meta, issues] = await Promise.all([
       gh('repo', 'view', repo, '--json', 'description,primaryLanguage,stargazerCount,url'),
-      gh('issue', 'list', '-R', repo, '-L', '40', '--json', 'number,title,labels'),
+      gh('issue', 'list', '-R', repo, '-L', '40', '--json', 'number,title,labels').catch(() => '[]'), // issues can be turned off; ideas do not need them
     ]);
     // PRs maintainers closed without merging: ideas like these are not wanted
     const declined = JSON.parse(await gh('pr', 'list', '-R', repo, '-s', 'closed', '-L', '60', '--json', 'number,title,mergedAt').catch(() => '[]'))

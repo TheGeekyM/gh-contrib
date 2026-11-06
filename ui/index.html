@@ -207,8 +207,8 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
 .need .tx,.nt .tx{flex:1;min-width:0}.need .tx b,.nt .tx b{display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .need .tx small,.nt .tx small{display:block;color:var(--dim);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.need .tm,.nt .tm{color:#6b707a;font-size:11px;flex:none;align-self:flex-start}
 .runs{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
-.run{padding:10px 12px;border-radius:12px;border:1px solid rgba(142,198,255,.2);background:rgba(142,198,255,.04);cursor:pointer}.run:hover{border-color:rgba(142,198,255,.5)}
-.run b{font-size:12px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 7px}.run .segs{margin:0 0 7px}.run small{color:var(--dim);font:11px ui-monospace,monospace;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drun{padding:10px 12px;border-radius:12px;border:1px solid rgba(142,198,255,.2);background:rgba(142,198,255,.04);cursor:pointer}.drun:hover{border-color:rgba(142,198,255,.5)}
+.drun b{font-size:12px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 7px}.drun .segs{margin:0 0 7px}.drun small{color:var(--dim);font:11px ui-monospace,monospace;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,auto);grid-auto-columns:minmax(0,1fr);gap:3px}
 .heat i{aspect-ratio:1;border-radius:2px;background:#161a20}.heat i.e{visibility:hidden}.l1{background:#1e3a5c!important}.l2{background:#2f5f91!important}.l3{background:#5d97cf!important}.l4{background:#8ec6ff!important}
 .hleg{display:flex;align-items:center;gap:3px;justify-content:flex-end;color:var(--dim);font-size:10px;margin-top:10px}.hleg i{width:10px;height:10px;border-radius:2px;display:inline-block;background:#161a20}
@@ -227,6 +227,9 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
 #toasts{position:fixed;right:16px;bottom:16px;z-index:98;display:flex;flex-direction:column;gap:8px;width:360px}
 .toast{border-radius:14px;background:rgba(18,22,30,.97);border:1px solid rgba(142,198,255,.25);box-shadow:0 14px 40px rgba(0,0,0,.5);overflow:hidden;animation:mp .2s cubic-bezier(.2,.9,.3,1.2)}.toast .nt{border:0}
 .prf{margin-top:14px}.prf .pt{font-size:14px;font-weight:600}.prf .pb{min-height:340px;line-height:1.5}.prf .ship{margin-top:6px}
+.sugt{display:inline-flex;gap:4px;margin-left:6px}.sugt .chipb{padding:3px 10px;font-size:11px}
+.dsec a.spin svg{animation:spin 1s linear infinite}.dsec a svg.i{width:13px;height:13px;vertical-align:-2px}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.sgrid .repo{margin:0}.sgrid .rd{-webkit-line-clamp:2;cursor:default;padding-right:0}.sgrid .rd::after{display:none}
 </style>
 <div id="hdr"><span class="logo" data-ic="git-branch"></span><b>gh-contrib</b><span id="crumb">› pick a repo</span><span id="bellw"><span id="bell" title="Notifications"></span><div id="npanel"><div class="nh">Notifications<a id="nread">Mark all read</a><a id="nclr">Clear</a></div><div class="nl" id="nlist"></div></div></span><span id="me" title="Account"><span class="ph" data-ic="user"></span><span>Sign in</span></span></div>
 <div id="body">
@@ -300,6 +303,7 @@ const IC = {
   github: '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>',
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   dash: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>', x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
   issues: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/>',
@@ -552,7 +556,7 @@ $('#sug').onclick = async () => {
     out.innerHTML = r.ok.map(x => { const [o, n] = x.fullName.split('/'), h = hue(x.fullName);
       return `<div class="card repo"><div class="rtop"><div class="av" style="--a:hsl(${h} 80% 72%);--b:hsl(${(h + 50) % 360} 80% 62%)">${esc(n[0].toUpperCase())}</div><div class="rn"><small>${esc(o)}</small><b>${esc(n)}</b></div></div>
         <div class="rd" title="Click to expand">${esc(x.description || 'No description')}</div>
-        <div class="rs">${x.noPr ? `<span class="pill warn" title="Only collaborators can open PRs here">${ic('alert')}no PRs</span>` : ''}<span class="pill">${ic('star')}${kfmt(x.stargazersCount)}</span><span class="pill">${ic('issues')}${kfmt(x.openIssuesCount)} open</span>${x.language ? `<span class="pill"><i class="ldot" style="--c:${LANGCOL[x.language] || '#888'}"></i>${esc(x.language)}</span>` : ''}</div>
+        <div class="rs">${x.noPr ? `<span class="pill warn" title="Only collaborators can open PRs here">${ic('alert')}no PRs</span>` : ''}${x.noIssues ? `<span class="pill warn" title="This repo has issues turned off: nothing to scan, Ideas still work">${ic('alert')}issues off</span>` : ''}<span class="pill">${ic('star')}${kfmt(x.stargazersCount)}</span><span class="pill">${ic('issues')}${kfmt(x.openIssuesCount)} open</span>${x.language ? `<span class="pill"><i class="ldot" style="--c:${LANGCOL[x.language] || '#888'}"></i>${esc(x.language)}</span>` : ''}</div>
         <div class="ract"><button data-r="${esc(x.fullName)}" class="${opened(x.fullName) ? 'g' : ''}">${opened(x.fullName) ? ic('check') + 'Opened' : ic('git-branch') + 'Open repo'}</button><button class="g" data-g="${esc(x.url)}">${ic('ext')}GitHub</button></div></div>`; }).join('')
       || '<div class="empty" style="grid-column:1/-1">Nothing matched. Try fewer stars or more languages.</div>'.replace('Try fewer stars or more languages.', query ? 'No repo found for that text.' : 'Try fewer stars or more languages.');
     out.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { openRepo(b.dataset.r, true); b.className = 'g'; b.innerHTML = ic('check') + 'Opened'; });
@@ -955,7 +959,34 @@ const heat = (days) => {
   const max = Math.max(1, ...days.flat().map(d => d[1])), pad = 7 - (days[0]?.length || 7);
   return `<div class="heat">${'<i class="e"></i>'.repeat(pad)}${days.flat().map(([d, c]) => `<i class="${c ? 'l' + Math.min(4, Math.ceil(c / max * 4)) : ''}" title="${c} contribution${c === 1 ? '' : 's'} on ${d}"></i>`).join('')}</div>`;
 };
+// repos worth contributing to: same search and AI-policy filter as Find repos, cached 6h per tab, refresh forces it
+const SUG = { sort: localStorage.sugSort || 'trending', busy: 0, err: '' };
+const sugCache = (k = SUG.sort) => JSON.parse(localStorage['sug2:' + k] || 'null'); // sug2: lists from before the issues-off filter are ignored
+async function loadSug(force) {
+  const c = sugCache(), k = SUG.sort; if (SUG.busy || !S?.languages?.length || (!force && SUG.err) || (!force && c && Date.now() - c.at < 6 * 36e5)) return;
+  SUG.busy = 1; SUG.err = ''; if (onDash()) renderDash();
+  try { const r = await gc.suggest({ languages: S.languages, minStars: S.minStars, sort: k }); localStorage['sug2:' + k] = JSON.stringify({ at: Date.now(), list: r.ok }); }
+  catch (e) { SUG.err = msg(e); }
+  SUG.busy = 0; if (onDash()) renderDash();
+}
 const PRST = { OPEN: ['c-running', 'Open'], DRAFT: ['c-queued', 'Draft'], MERGED: ['c-merged', 'Merged'], CLOSED: ['c-failed', 'Closed'] };
+function sugBlock() {
+  const c = sugCache(), s = STATS, done = new Set([...Object.keys(R), ...(s?.top || []).map(t => t.repo), ...(s?.recent || []).map(x => x.repo)]);
+  const list = (c?.list || []).filter(x => !x.noPr && !x.noIssues && !done.has(x.fullName)).slice(0, 6);
+  const tabs = [['trending', 'Trending'], ['new', 'New'], ['popular', 'Popular']].map(([k, t]) => `<span class="chipb ${SUG.sort === k ? 'on' : ''}" data-sug="${k}">${t}</span>`).join('');
+  const card = (x) => { const [o, n] = x.fullName.split('/'), h = hue(x.fullName);
+    return `<div class="card repo"><div class="rtop"><div class="av" style="--a:hsl(${h} 80% 72%);--b:hsl(${(h + 50) % 360} 80% 62%)">${esc(n[0].toUpperCase())}</div><div class="rn"><small>${esc(o)}</small><b title="${esc(x.fullName)}">${esc(n)}</b></div></div>
+      <div class="rd" title="${esc(x.description || '')}">${esc(x.description || 'No description')}</div>
+      <div class="rs"><span class="pill">${ic('star')}${kfmt(x.stargazersCount)}</span><span class="pill">${ic('issues')}${kfmt(x.openIssuesCount)} open</span>${x.language ? `<span class="pill"><i class="ldot" style="--c:${LANGCOL[x.language] || '#888'}"></i>${esc(x.language)}</span>` : ''}</div>
+      <div class="ract"><button data-sopen="${esc(x.fullName)}">${ic('git-branch')}Open &amp; scan</button><button class="g" data-surl="${esc(x.url)}">${ic('ext')}GitHub</button></div></div>`; };
+  const body = !S?.languages?.length ? '<div class="d" style="font-size:12px">Pick languages in Find repos to get suggestions.</div>'
+    : SUG.err ? `<div class="e" style="font-size:12px">${esc(SUG.err)}</div>`
+    : list.length ? `<div class="sgrid">${list.map(card).join('')}</div>`
+    : SUG.busy || !c ? `<div class="sgrid">${'<div class="skel" style="height:150px"></div>'.repeat(3)}</div>`
+    : '<div class="d" style="font-size:12px">Nothing new here: you have opened or contributed to all of them. Try another tab or refresh.</div>';
+  return `<div class="dblk"><div class="dsec">${ic('sparkles')} Repos to work on<span class="sugt">${tabs}</span>
+    <a id="sugrf" class="${SUG.busy ? 'spin' : ''}" title="Find new suggestions${c ? ' (last ' + agoT(c.at) + ')' : ''}">${ic('refresh')} ${SUG.busy ? 'searching…' : c ? agoT(c.at) : ''}</a></div>${body}</div>`;
+}
 function renderDash() {
   if (!me) { $('#dash').innerHTML = '<div class="empty">Sign in with GitHub (top right) to see your dashboard.</div>'; return; }
   loadStats();
@@ -975,7 +1006,8 @@ function renderDash() {
   const left = `<div class="dblk" id="dneed"><div class="dsec">${ic('alert')} Needs you ${need.length ? `<span class="n">${need.length}</span>` : ''}</div>
       ${need.length ? need.slice(0, 12).map(n => nrow(n, 'need', `data-g="${gi(n.go)}"`)).join('') : '<div class="need" style="cursor:default"><i style="--c:#7be0b0">' + ic('check') + '</i><div class="tx"><b>All clear</b><small>No replies, reviews or failed runs waiting on you.</small></div></div>'}</div>
     <div class="dblk"><div class="dsec">${ic('flame')} Forge ${act.length ? `<span class="n">${act.length}</span>` : ''}<a data-g="${gi({ p: 'forge' })}">Open Forge →</a></div>
-      ${act.length ? `<div class="runs">${act.slice(0, 6).map(j => { const ST = STEPSOF(j); return `<div class="run" data-j="${j.id}"><b title="${esc(jobLabel(j))}">${esc(jobLabel(j))}</b><div class="segs">${ST.map((x, i) => `<i class="${j.steps[i]?.status || ''}"></i>`).join('')}</div><small>${j.status === 'queued' ? 'queued' : esc(j.last || CHIP[j.status])}</small></div>`; }).join('')}</div>` : '<div class="d" style="font-size:12px">Nothing running. Scan a repo and send issues here with <b>Work on it</b>.</div>'}</div>
+      ${act.length ? `<div class="runs">${act.slice(0, 6).map(j => { const ST = STEPSOF(j); return `<div class="drun" data-j="${j.id}"><b title="${esc(jobLabel(j))}">${esc(jobLabel(j))}</b><div class="segs">${ST.map((x, i) => `<i class="${j.steps[i]?.status || ''}"></i>`).join('')}</div><small>${j.status === 'queued' ? 'queued' : esc(j.last || CHIP[j.status])}</small></div>`; }).join('')}</div>` : '<div class="d" style="font-size:12px">Nothing running. Scan a repo and send issues here with <b>Work on it</b>.</div>'}</div>
+    ${sugBlock()}
     <div class="dblk card"><div class="dsec" style="margin-bottom:12px">${ic('layers')} ${s ? `${s.year.total.toLocaleString()} contributions in the last year` : 'Contributions'}<a data-g="${gi({ url: 'https://github.com/' + me.login })}">Profile →</a></div>
       ${s ? heat(s.days) + `<div class="hleg">Less <i></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> More</div>` : statsErr ? `<div class="e" style="font-size:12px">${esc(statsErr)}</div>` : '<div class="skel" style="height:110px"></div>'}</div>
     <div class="dblk card"><div class="dsec">${ic('git-branch')} Recent PRs to other repos<a data-g="${gi({ url: pullsUrl })}">All →</a></div>
@@ -997,10 +1029,14 @@ function renderDash() {
       <p>${need.length ? `${need.length} thing${need.length > 1 ? 's' : ''} waiting on you` : 'Nothing waiting on you'}${act.length ? ` · ${act.length} run${act.length > 1 ? 's' : ''} in the Forge` : ''}${s ? ` · on GitHub since ${new Date(s.since).getFullYear()}` : ''}</p></div></div>
     <div class="flow">${flow}</div><div class="dgrid"><div>${left}</div><div>${right}</div></div>`;
   $('#dash').querySelectorAll('[data-g]').forEach(e => e.onclick = () => { const g = G[e.dataset.g]; if (g.scroll) $('#dneed').scrollIntoView({ behavior: 'smooth' }); else openGo(g); });
-  $('#dash').querySelectorAll('.run').forEach(e => e.onclick = () => openJob(JOBS[e.dataset.j]));
+  $('#dash').querySelectorAll('.drun').forEach(e => e.onclick = () => openJob(JOBS[e.dataset.j]));
   bindNotes($('#dash'));
   $('#srf').onclick = () => loadStats(true);
+  loadSug(); $('#sugrf').onclick = () => loadSug(true);
+  $('#dash').querySelectorAll('[data-sug]').forEach(e => e.onclick = () => { SUG.sort = localStorage.sugSort = e.dataset.sug; SUG.err = ''; renderDash(); });
+  $('#dash').querySelectorAll('[data-sopen]').forEach(b => b.onclick = () => openRepo(b.dataset.sopen, true));
+  $('#dash').querySelectorAll('[data-surl]').forEach(b => b.onclick = () => go(b.dataset.surl));
   $('#dall').onclick = (e) => { e.stopPropagation(); $('#bell').click(); };
 }
-setInterval(() => { if (onDash() && !document.querySelector('#dash [data-g]:hover, #dash [data-n]:hover, #dash .run:hover, #dash .heat i:hover')) renderDash(); }, 5000);
+setInterval(() => { if (onDash() && !document.querySelector('#dash [data-g]:hover, #dash [data-n]:hover, #dash .drun:hover, #dash .heat i:hover, #dash button:hover, #dash .chipb:hover')) renderDash(); }, 5000);
 </script>
