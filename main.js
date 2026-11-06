@@ -93,9 +93,33 @@ ipcMain.handle('stop', (e, job) => { aborted.add(job); for (const p of procs[job
 // ---- account ----
 ipcMain.handle('account', async () => {
   const u = JSON.parse(await gh('api', 'user'));
-  return { login: u.login, name: u.name, id: u.id, status: (await gh('auth', 'status').catch(e => e.message)) };
+  return { login: u.login, name: u.name, id: u.id, avatar: u.avatar_url, status: (await gh('auth', 'status').catch(e => e.message)) };
 });
 ipcMain.handle('login', () => { execFile('gnome-terminal', ['--title=GitHub login', '--', 'bash', '-c', 'gh auth login --web -h github.com; echo; gh auth status; read -r']); return true; });
+
+// ---- dashboard: GitHub stats for the signed-in user (one GraphQL call) ----
+// External = PRs to repos you don't own, which is what this app is for.
+ipcMain.handle('stats', async (e, { login }) => {
+  const q = (s) => JSON.stringify(s), ext = `author:${login} is:pr -user:${login}`;
+  const d = JSON.parse(await gh('api', 'graphql', '-F', `login=${login}`, '-f', `query=query($login:String!){
+    user(login:$login){ createdAt followers{totalCount} repositories(ownerAffiliations:OWNER,privacy:PUBLIC){totalCount}
+      repositoriesContributedTo(first:6,contributionTypes:[PULL_REQUEST],orderBy:{field:STARGAZERS,direction:DESC}){ totalCount nodes{ nameWithOwner stargazerCount } }
+      contributionsCollection{ totalCommitContributions totalPullRequestContributions totalPullRequestReviewContributions totalIssueContributions
+        contributionCalendar{ totalContributions weeks{ contributionDays{ date contributionCount } } } } }
+    all:search(query:${q(ext)},type:ISSUE){issueCount} merged:search(query:${q(ext + ' is:merged')},type:ISSUE){issueCount}
+    open:search(query:${q(ext + ' is:open')},type:ISSUE){issueCount}
+    recent:search(query:${q(ext + ' sort:updated-desc')},type:ISSUE,first:8){ nodes{ ... on PullRequest{ title url number state merged isDraft updatedAt repository{nameWithOwner} } } } }`)).data;
+  const u = d.user, c = u.contributionsCollection;
+  return {
+    since: u.createdAt, followers: u.followers.totalCount, repos: u.repositories.totalCount,
+    contributedTo: u.repositoriesContributedTo.totalCount, top: u.repositoriesContributedTo.nodes.map(n => ({ repo: n.nameWithOwner, stars: n.stargazerCount })),
+    year: { total: c.contributionCalendar.totalContributions, commits: c.totalCommitContributions, prs: c.totalPullRequestContributions, reviews: c.totalPullRequestReviewContributions, issues: c.totalIssueContributions },
+    days: c.contributionCalendar.weeks.map(w => w.contributionDays.map(x => [x.date, x.contributionCount])),
+    ext: { all: d.all.issueCount, merged: d.merged.issueCount, open: d.open.issueCount, closed: d.all.issueCount - d.merged.issueCount - d.open.issueCount },
+    recent: d.recent.nodes.map(n => ({ title: n.title, url: n.url, number: n.number, repo: n.repository.nameWithOwner, state: n.merged ? 'MERGED' : n.isDraft && n.state === 'OPEN' ? 'DRAFT' : n.state, updatedAt: n.updatedAt })),
+  };
+});
+ipcMain.handle('focus', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w.isMinimized()) w.restore(); w.show(); w.focus(); });
 
 // ---- repo docs + AI-policy check ----
 const DOCS = ['CONTRIBUTING.md', '.github/CONTRIBUTING.md', 'docs/CONTRIBUTING.md', 'AI_POLICY.md', '.github/AI_POLICY.md',
@@ -503,7 +527,7 @@ ipcMain.handle('prs', async (e, { repo, login }) => {
       if (!done || v === 'PENDING' || v === '') k.pend++; else if (['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(v)) k.pass++; else k.fail++;
     }
     const r = pr.state === 'OPEN' ? await collectReplies(repo, pr.number, login).catch(() => ({ replies: [], needs: false })) : { replies: [], needs: false };
-    return { number: pr.number, title: pr.title, url: pr.url, state: pr.mergedAt ? 'MERGED' : pr.state, draft: pr.isDraft, updatedAt: pr.updatedAt,
+    return { number: pr.number, title: pr.title, url: pr.url, state: pr.mergedAt ? 'MERGED' : pr.state, draft: pr.isDraft, updatedAt: pr.updatedAt, mergedAt: pr.mergedAt, closedAt: pr.closedAt,
       review: pr.reviewDecision, checks: k, branch: pr.headRefName, cross: pr.isCrossRepository, replies: r.replies.slice(0, 15), needs: r.needs };
   }));
 });
