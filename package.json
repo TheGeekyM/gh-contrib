@@ -5,10 +5,49 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test.js"
+    "test": "node test.js",
+    "dist": "electron-builder --linux AppImage deb"
   },
   "devDependencies": {
-    "electron": "^43.1.1"
+    "electron": "^43.1.1",
+    "electron-builder": "^26.18.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "author": {
+    "name": "Mohamed Emad",
+    "email": "8965415+TheGeekyM@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/TheGeekyM/gh-contrib",
+  "build": {
+    "appId": "io.github.thegeekym.ghcontrib",
+    "productName": "GH Contrib",
+    "files": [
+      "main.js",
+      "preload.js",
+      "guard.js",
+      "ui/**",
+      "assets/**"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "assets/icon.png",
+      "artifactName": "gh-contrib-${version}-${arch}.${ext}",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": [
+        "gh",
+        "git"
+      ]
+    },
+    "publish": null
+  },
+  "desktopName": "gh-contrib.desktop"
 }

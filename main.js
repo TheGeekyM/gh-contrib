@@ -187,7 +187,7 @@ ipcMain.handle('ideas', async (e, { repo, job, login, rejected = [] }) => {
   const log = (t) => e.sender.send('log', { job, t: t + '\n' });
   let i = 0;
   try {
-    if ((await access(repo)).blocked) throw new Error(prBlockedMsg(repo).replace(' Nothing was started.', '') + ' Ideas are turned off for it.');
+    const acc = await access(repo); if (acc.blocked) throw new Error(acc.why.replace(' Nothing was started.', '') + ' Ideas are turned off for it.');
     step(i = 0, 'run'); log(`Reading ${repo} metadata and open issues…`);
     const [meta, issues] = await Promise.all([
       gh('repo', 'view', repo, '--json', 'description,primaryLanguage,stargazerCount,url'),
@@ -254,7 +254,7 @@ ipcMain.handle('prepare', async (e, { repo, number, idea, user, force, job, ck: 
         step(i = 0, 'run');
         // write access (your own repo or a team repo): no fork needed, push the branch to the repo itself
         const acc = await access(repo); direct = acc.direct;
-        if (acc.blocked) throw new Error(prBlockedMsg(repo));
+        if (acc.blocked) throw Object.assign(new Error(acc.why), { blocked: true });
         if (direct) log(`You have write access to ${repo}: skipping the fork, the branch will be pushed to the repo itself.`);
         else { log(`Forking ${repo} to ${user.login}…`); if (!fs.existsSync(base)) await gh('repo', 'fork', repo, '--clone=false'); }
         step(0, 'done', direct ? 'direct push (write access)' : `${user.login}/${repo.split('/')[1]}`);
@@ -382,6 +382,7 @@ DIFF:\n${patch}`, { cwd: dir, edit: true, onLog: log, job });
         return { ...res, pr: url, draft: asDraft };
       } catch (err) {
         if (/Stopped by you/.test(err.message)) throw err;
+        if (err.blocked) throw err; // the repo refuses your PRs: no review can fix that, the run is skipped
         log('Auto-open blocked: ' + err.message); step(8, 'run', 'your review'); return { ...res, autoBlocked: err.message };
       }
     }
@@ -428,10 +429,14 @@ ipcMain.handle('draft', (e, a) => makeDraft(a));
 const topicalOf = (repo, dir) => { let rd = ''; try { rd = fs.readFileSync(path.join(dir, fs.readdirSync(dir).find(f => /^readme/i.test(f)) || '-'), 'utf8').slice(0, 4000); } catch {} return G.aboutAi(repo, rd); };
 const authorOf = (dir) => git(dir, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>');
 // write access? and does the repo accept PRs from non-collaborators? (anthropics/claude-code: collaborators_only)
+// Interaction limits (collaborators only) are invisible to non-admins, so they are learned when GitHub refuses a PR.
+// ponytail: limits expire (24h to 6 months); a learned block is trusted for 30 days, then the next PR attempt re-checks it
+const PR_REFUSED = /Interactions on this repository have been restricted|restricted to collaborators/i;
 async function access(repo) {
   const j = JSON.parse(await gh('api', `repos/${repo}`).catch(() => '{}'));
-  const direct = !!j.permissions?.push, blocked = G.prBlocked(j) || (!direct && !!j.archived);
-  return { direct, blocked, why: j.archived ? `${repo} is archived (read-only).` : prBlockedMsg(repo) };
+  const learned = readJson('blocked.json', {})[repo], lim = learned && Date.now() - learned.at < 30 * 864e5 ? learned.why : '';
+  const direct = !!j.permissions?.push, blocked = !direct && !!lim || G.prBlocked(j) || (!direct && !!j.archived);
+  return { direct, blocked, why: j.archived ? `${repo} is archived (read-only).` : lim || prBlockedMsg(repo) };
 }
 ipcMain.handle('access', (e, repo) => access(repo));
 ipcMain.handle('rejectKind', (e, reason) => G.rejectKind(reason));
@@ -440,17 +445,22 @@ async function shipPr({ repo, dir, branch, def, direct, title, body, user, draft
   const prs = readJson('prs.json', {}), cap = readJson('settings.json', {}).prCap ?? 3;
   const times = [].concat(prs[repo] || []); // older files stored a single timestamp
   if (!G.rateOk(times, cap)) throw new Error(`Rate cap: ${times.filter(t => Date.now() - t < 864e5).length} PR(s) already opened to ${repo} in the last 24h (limit ${cap}; change it in Forge).`);
-  if ((await access(repo)).blocked) throw new Error(prBlockedMsg(repo));
+  const acc = await access(repo); if (acc.blocked) throw Object.assign(new Error(acc.why), { blocked: true });
   await git(dir, 'add', '-A');
-  const names = await git(dir, 'diff', '--cached', '--name-only');
-  if (!names.trim()) throw new Error('Nothing staged: the AI made no changes.');
-  const top = topicalOf(repo, dir), hit = G.findTraceT(top, title, body, names, G.addedLines(await git(dir, 'diff', '--cached')));
-  if (hit) throw new Error(`Blocked, AI/co-author trace found: "${hit}"`);
-  const lead = (body.split(/\n\s*\n/).find(p => p.trim() && !/^#/.test(p.trim())) || '').trim(); // first prose paragraph, not a heading
-  await gitH(dir, 'commit', '-m', title, ...(lead ? ['-m', lead] : []));
+  const names = await git(dir, 'diff', '--cached', '--name-only'), top = topicalOf(repo, dir);
+  if (names.trim()) {
+    const hit = G.findTraceT(top, title, body, names, G.addedLines(await git(dir, 'diff', '--cached')));
+    if (hit) throw new Error(`Blocked, AI/co-author trace found: "${hit}"`);
+    const lead = (body.split(/\n\s*\n/).find(p => p.trim() && !/^#/.test(p.trim())) || '').trim(); // first prose paragraph, not a heading
+    await gitH(dir, 'commit', '-m', title, ...(lead ? ['-m', lead] : []));
+  } else if (!+(await git(dir, 'rev-list', '--count', `${direct ? 'origin' : 'upstream'}/${def}..HEAD`).catch(() => '0'))) throw new Error('Nothing to open a PR for: the branch has no changes.');
+  // else: an earlier attempt already committed (and maybe pushed) this change before GitHub refused the PR; reuse that commit
   const hit2 = G.findTraceT(top, await git(dir, 'log', '-1', '--format=%B')) || G.findTrace(await authorOf(dir)); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
   await gitH(dir, 'push', '-u', 'origin', branch, '--force-with-lease');
-  const url = (await gh('pr', 'create', '-R', repo, '--head', direct ? branch : `${user.login}:${branch}`, '--base', def, '--title', title, '--body', body, ...(draft ? ['--draft'] : []))).trim();
+  const url = (await gh('pr', 'create', '-R', repo, '--head', direct ? branch : `${user.login}:${branch}`, '--base', def, '--title', title, '--body', body, ...(draft ? ['--draft'] : [])).catch(e => {
+    if (PR_REFUSED.test(e.message)) { const why = `${repo} restricts interactions to collaborators, so GitHub refuses PRs from your account.`, b = readJson('blocked.json', {}); b[repo] = { why, at: Date.now() }; writeJson('blocked.json', b); throw Object.assign(new Error(why), { blocked: true }); }
+    throw e;
+  })).trim();
   prs[repo] = [...times.filter(t => Date.now() - t < 864e5), Date.now()]; writeJson('prs.json', prs);
   return url;
 }

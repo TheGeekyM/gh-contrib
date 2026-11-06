@@ -602,7 +602,7 @@ let saveT;
 const saveJobs = () => { clearTimeout(saveT); saveT = setTimeout(() => gc.jobsSet(J.map(j => ({
   id: j.id, kind: j.kind, repo: j.repo, number: j.number, title: j.title, idea: j.idea, name: j.name, steps: j.steps, log: (j.log || '').slice(-30000),
   status: j.status, err: j.err, t0: j.t0, t1: j.t1, prUrl: j.prUrl, ck: j.ck, force: j.force,
-  cur: j.cur && { dir: j.cur.dir, branch: j.cur.branch, def: j.cur.def, direct: j.cur.direct, issue: j.cur.issue, verdict: j.cur.verdict, tests: j.cur.tests, stopped: j.cur.stopped, testsFailed: j.cur.testsFailed } }))), 800); };
+  cur: j.cur && { dir: j.cur.dir, branch: j.cur.branch, def: j.cur.def, direct: j.cur.direct, issue: j.cur.issue, verdict: j.cur.verdict, tests: j.cur.tests, stopped: j.cur.stopped, testsFailed: j.cur.testsFailed, repoBlocked: j.cur.repoBlocked } }))), 800); };
 function restoreJobs(list) {
   jid = Math.max(jid, ...list.map(o => +String(o.id).slice(1) || 0));
   for (const o of list) {
@@ -648,6 +648,7 @@ function resumeJob(j) { // continue at the stage it reached; finished stages are
   renderPane(j); paint(j); pump();
 }
 function restartJob(j) { Object.assign(j, { status: 'queued', steps: [], log: '', err: '', ck: null, cur: null }); renderPane(j); paint(j); pump(); }
+const NO_PRS = /only accepts pull requests from collaborators|restricts interactions to collaborators|is archived \(read-only\)/;
 function pump() { // start queued runs (oldest first) while under the parallel limit
   for (const j of J.slice().reverse()) if (j.status === 'queued' && J.filter(x => x.status === 'running').length < (S.max || 3)) run(j);
   renderBoard(); renderRepoList(); saveJobs();
@@ -667,7 +668,11 @@ async function run(j) {
       else if (j.cur.pr) { j.prUrl = j.cur.pr; await watchCi(j); setTimeout(() => refreshDone(j.repo, true), 4000); }
       else j.status = 'review';
     }
-  } catch (e) { j.err = msg(e); j.status = /Stopped by you/.test(j.err) ? 'paused' : 'failed'; if (j.status === 'paused') j.err = 'You stopped this run.'; }
+  } catch (e) {
+    j.err = msg(e);
+    if (NO_PRS.test(j.err)) { j.status = 'stopped'; j.cur = { ...(j.cur || {}), stopped: true, repoBlocked: true, verdict: { verdict: 'no PRs', reason: j.err } }; j.err = ''; checkAccess(j.repo); } // GitHub refuses your PRs here: nothing to review
+    else { j.status = /Stopped by you/.test(j.err) ? 'paused' : 'failed'; if (j.status === 'paused') j.err = 'You stopped this run.'; }
+  }
   j.t1 = Date.now(); renderPane(j); paint(j); pump();
 }
 function renderBoard() {
@@ -746,6 +751,10 @@ function renderPane(j) {
   if (j.status === 'done') {
     p.innerHTML = `<h3>${j.kind === 'feedback' ? 'Update pushed' : 'PR opened'} <span class="d">${esc(j.repo)}</span></h3><div class="card">${j.prUrl ? `<a href="#" class="pu">${esc(j.prUrl)}</a>` : esc(j.doneNote || 'Done.')}${j.ciGreen ? `<p style="margin:8px 0 0"><span class="pill ok">${ic('check')}all CI checks passed</span></p>` : ''}${j.cur?.draft ? '<p class="w" style="margin:8px 0 0">Opened as a <b>draft</b>: the tests could not run on this machine, so the project\'s CI will run them. Mark it ready for review on GitHub once CI is green.</p>' : ''}<p class="d" style="margin:8px 0 0">Track CI and replies in this repo's <b>Done</b> tab.</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
     const a = p.querySelector('.pu'); if (a) a.onclick = (e) => { e.preventDefault(); go(j.prUrl); };
+    return;
+  }
+  if (j.status === 'stopped' && j.cur?.repoBlocked) {
+    p.innerHTML = `<h3>Skipped automatically <span class="d">no PRs</span></h3><div class="card"><b>${esc(j.cur.verdict?.reason)}</b><p class="d">No review can get past this, so the run was closed. The repo is marked <b>no PRs</b> and later runs there are skipped too.${j.cur.dir ? ` The work is still in ${esc(j.cur.dir)}.` : ''}</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
     return;
   }
   if (j.status === 'stopped' && j.cur?.testsFailed) {
