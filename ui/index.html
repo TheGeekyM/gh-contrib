@@ -57,7 +57,8 @@ button{transition:filter .15s}button:hover:not(:disabled){filter:brightness(1.12
 .segs{display:flex;gap:4px;margin:0 0 14px}.segs i{flex:1;height:3px;border-radius:3px;background:#222}.segs i.done{background:var(--ok)}.segs i.run{background:var(--acc);animation:pulse 1.2s infinite}.segs i.fail{background:#ff6b6b}
 @keyframes pulse{50%{opacity:.35}}
 .forge{display:flex;gap:0;border:1px solid var(--line);border-radius:16px;overflow:hidden;min-height:440px;background:rgba(0,0,0,.25)}
-.steps{width:250px;border-right:1px solid var(--line);padding:10px;flex:none}
+.steps{width:272px;border-right:1px solid var(--line);padding:10px;flex:none}
+.st>div{min-width:0}.steps .st.run small{font:11px system-ui;white-space:normal;overflow-wrap:anywhere;display:inline} /* the dashboard's .run small (monospace, nowrap) also matches the running step */
 .st{display:flex;gap:12px;padding:10px;border-radius:10px;align-items:center}.st.run{background:rgba(255,255,255,.05)}
 .dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;border:1px solid #333;color:#777;flex:none}
 .st.done .dot{border-color:var(--ok);color:var(--ok);background:rgba(63,178,127,.12)}.st.run .dot{border:2px solid var(--acc);border-top-color:transparent;animation:spin 1s linear infinite}.st.fail .dot{border-color:#ff6b6b;color:#ff6b6b}
@@ -225,6 +226,7 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
 .nl{overflow:auto}.nl .empty{padding:30px 20px;font-size:12px}.nt{border-bottom:1px solid rgba(255,255,255,.04)}.nt:hover{background:rgba(255,255,255,.04)}.nt.u{background:rgba(142,198,255,.06)}.nt.u .tx b::after{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--acc);margin-left:6px;vertical-align:2px}
 #toasts{position:fixed;right:16px;bottom:16px;z-index:98;display:flex;flex-direction:column;gap:8px;width:360px}
 .toast{border-radius:14px;background:rgba(18,22,30,.97);border:1px solid rgba(142,198,255,.25);box-shadow:0 14px 40px rgba(0,0,0,.5);overflow:hidden;animation:mp .2s cubic-bezier(.2,.9,.3,1.2)}.toast .nt{border:0}
+.prf{margin-top:14px}.prf .pt{font-size:14px;font-weight:600}.prf .pb{min-height:340px;line-height:1.5}.prf .ship{margin-top:6px}
 </style>
 <div id="hdr"><span class="logo" data-ic="git-branch"></span><b>gh-contrib</b><span id="crumb">› pick a repo</span><span id="bellw"><span id="bell" title="Notifications"></span><div id="npanel"><div class="nh">Notifications<a id="nread">Mark all read</a><a id="nclr">Clear</a></div><div class="nl" id="nlist"></div></div></span><span id="me" title="Account"><span class="ph" data-ic="user"></span><span>Sign in</span></span></div>
 <div id="body">
@@ -236,6 +238,7 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
       <div class="item" data-p="forge" title="Forge"><i data-ic="flame"></i><span class="lbl">Forge</span><span class="badge" id="fbadge"></span></div>
       <div class="item" data-p="web" title="GitHub"><i data-ic="github"></i><span class="lbl">GitHub</span></div>
       <div class="sec"><span>Open repos</span><span class="plus" id="addrepo" title="Open another repo" data-ic="plus"></span></div><div id="repolist"></div>
+      <div class="sec" id="closedsec" style="display:none"><span>Closed repos</span></div><div id="closedlist"></div>
     </div>
     <div id="grip" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" title="Drag to resize, drag narrow to collapse, double-click to toggle"></div>
   </div>
@@ -274,7 +277,7 @@ const STEPSOF = (j) => j.kind === 'ideas' ? IDEA_STEPS : j.kind === 'feedback' ?
 const SGL = { wait: 'Waiting', prog: 'In progress', stop: 'Stopped / failed', ready: 'Ready', done: 'Done', skip: 'Skipped' };
 const SG = st => ({ queued: 'wait', running: 'prog', ci: 'prog', paused: 'stop', failed: 'stop', review: 'ready', done: 'done', stopped: 'skip' }[st]);
 const CHIP = { ci: 'CI running', paused: 'Stopped', queued: 'Queued', running: 'Running', review: 'Ready', done: 'PR opened', stopped: 'Skipped', failed: 'Failed' };
-function ask({ title, text, ok = 'Confirm', danger }) {
+function ask({ title, text, ok = 'Confirm', danger, info }) {
   return new Promise(res => {
     const m = document.createElement('div'); m.className = 'mdl' + (danger ? ' danger' : '');
     m.innerHTML = `<div class="box" role="dialog"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${danger ? '<path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>' : '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>'}</svg></div><h4></h4><p></p><div class="row"><button class="g no">Cancel</button><button class="ok"></button></div></div>`;
@@ -282,7 +285,7 @@ function ask({ title, text, ok = 'Confirm', danger }) {
     const done = v => { document.removeEventListener('keydown', key); m.remove(); res(v); };
     const key = e => { if (e.key === 'Escape') done(false); if (e.key === 'Enter') done(true); };
     m.onclick = e => { if (e.target === m) done(false); };
-    m.querySelector('.no').onclick = () => done(false); m.querySelector('.ok').onclick = () => done(true);
+    m.querySelector('.no').onclick = () => done(false); m.querySelector('.ok').onclick = () => done(true); if (info) m.querySelector('.no').style.display = 'none';
     document.addEventListener('keydown', key); document.body.appendChild(m); m.querySelector('.ok').focus();
   });
 }
@@ -382,7 +385,13 @@ function renderRepoList() {
   else { $('#rhav').style.display = $('#rhgh').style.display = 'none'; $('#rhown').textContent = 'Open as many as you like. Each keeps its own scan.'; $('#rhname').textContent = 'Repos'; $('#rhname').title = ''; }
   $('#repolist').innerHTML = Object.keys(R).map(r => { const n = J.filter(j => j.repo === r && (j.status === 'running' || j.status === 'queued' || j.status === 'ci')).length, dn = J.filter(j => j.repo === r && j.status === 'done' && j.kind !== 'ideas').length;
     return `<div class="item ritem ${r === active ? 'on' : ''}" data-r="${esc(r)}" title="${esc(r)}"><span class="rav" style="--h:${hue(r)}">${esc(r.split('/')[1][0].toUpperCase())}${n ? '<b></b>' : ''}</span><div class="rn"><span class="rt">${esc(r)}</span><div class="rc">${R[r].blocked ? `<small style="color:#ff9b9b" title="${esc(R[r].blocked)}">no PRs</small>` : ''}${R[r].needs ? `<small style="color:#ffb86b">${R[r].needs} repl${R[r].needs > 1 ? 'ies' : 'y'}</small>` : ''}${n ? `<small>${n} running</small>` : ''}${dn ? `<small style="color:var(--ok)">${dn} done</small>` : ''}${R[r].merged ? `<small style="color:#c9a0ff" title="PRs accepted and merged">${R[r].merged} merged</small>` : ''}</div></div><span class="x" data-x="${esc(r)}" title="Close">${ic('x')}</span></div>`; }).join('') || '<div class="d" style="padding:4px 20px;font-size:11px">none yet</div>';
-  document.querySelectorAll('.ritem').forEach(i => i.onclick = (e) => { if (e.target.dataset.x) return closeRepo(e.target.dataset.x); activateRepo(i.dataset.r); });
+  document.querySelectorAll('.ritem[data-r]').forEach(i => i.onclick = (e) => { const x = e.target.closest('[data-x]'); if (x) return closeRepo(x.dataset.x); activateRepo(i.dataset.r); });
+  const C = S?.closed || {}; $('#closedsec').style.display = Object.keys(C).length ? '' : 'none';
+  $('#closedlist').innerHTML = Object.entries(C).map(([r, c]) => { const m = c.prs.filter(x => x.state === 'MERGED').length, cl = c.prs.length - m;
+    return `<div class="item ritem" data-c="${esc(r)}" title="${esc(r)}: closed ${agoT(c.at)}, local files deleted. Click to reopen."><span class="rav" style="--h:${hue(r)};filter:grayscale(.7);opacity:.6">${esc(r.split('/')[1][0].toUpperCase())}</span><div class="rn"><span class="rt" style="color:var(--dim)">${esc(r)}</span><div class="rc">${m ? `<small style="color:#c9a0ff">${m} merged</small>` : ''}${cl ? `<small style="color:var(--dim)">${cl} closed</small>` : ''}</div></div><span class="x" data-cx="${esc(r)}" title="Forget these stats">${ic('x')}</span></div>`; }).join('');
+  document.querySelectorAll('.ritem[data-c]').forEach(i => i.onclick = async (e) => { const x = e.target.closest('[data-cx]'), r = i.dataset.c;
+    if (!x) return openRepo(r); // reopening drops it from Closed repos; nothing is cloned until a run needs it
+    if (await ask({ title: 'Forget ' + r + '?', text: 'Removes its Done stats from Closed repos. Your PRs on GitHub are not touched.', ok: 'Forget', danger: 1 })) { delete S.closed[r]; gc.settingsSet(S); renderRepoList(); } });
 }
 function openRepo(repo, scanNow, quiet) {
   repo = normRepo(repo);
@@ -401,7 +410,7 @@ function openRepo(repo, scanNow, quiet) {
       if (issues) r.sc.innerHTML = PH_ISSUES(repo); else { r.idv.innerHTML = PH_IDEAS; r.ideas = null; }
     };
     const c = CACHE[repo]; if (c?.scan) doScan(repo, c.scan); if (c?.ideas) restoreIdeas(repo, c.ideas);
-    S.repos = [...new Set([...(S.repos || []), repo])]; gc.settingsSet(S);
+    S.repos = [...new Set([...(S.repos || []), repo])]; if (S.closed) delete S.closed[repo]; gc.settingsSet(S);
   }
   if (!quiet || !active) { if (quiet) { active = repo; Object.values(R).forEach(r => r.el.style.display = 'none'); R[repo].el.style.display = 'block'; renderRepoList(); } else activateRepo(repo); }
   else renderRepoList();
@@ -500,8 +509,23 @@ const checkAccess = async (repo) => { try { const a = await gc.access(repo), r =
   r.blocked = a.why; r.el.classList.add('blk'); r.el.insertAdjacentHTML('afterbegin', `<div class="w blkb">${ic('alert')} ${esc(a.why)} Ideas are turned off for this repo. Issues are still scannable, but GitHub will refuse the PR, so ask the maintainers for access first.</div>`);
   r.el.querySelector('[data-t="ideas"]').style.display = 'none'; if (r.tab === 'ideas') setTab(repo, 'issues'); r.idv.innerHTML = ''; r.ideas = null;
   for (const k of ['ideas', 'rejected']) gc.cacheSet({ repo, key: k, value: null }); if (CACHE[repo]) { delete CACHE[repo].ideas; delete CACHE[repo].rejected; } renderRepoList(); } } catch {} };
-function closeRepo(repo) {
-  R[repo].el.remove(); delete R[repo]; S.repos = (S.repos || []).filter(r => r !== repo); gc.settingsSet(S);
+// close = free ~/contrib for a finished repo. Only when nothing is pending; its PR list stays under Closed repos (no PRs at all: deleted completely)
+async function closeRepo(repo) {
+  const r = R[repo]; if (!r) return; await refreshDone(repo, true);
+  const jobs = J.filter(j => j.repo === repo && j.kind !== 'ideas'), n = (st) => jobs.filter(j => st.includes(j.status)).length, s = (k) => k > 1 ? 's' : '';
+  const live = n(['running', 'queued', 'ci']), stuck = n(['paused', 'failed', 'review']), open = (r.done || []).filter(x => x.state === 'OPEN'), nr = open.filter(x => x.needs).length, why = [];
+  if (live) why.push(`${live} run${s(live)} still going in Forge`);
+  if (stuck) why.push(`${stuck} run${s(stuck)} stuck or waiting for you in Forge (finish or remove ${stuck > 1 ? 'them' : 'it'})`);
+  if (!r.done) why.push("your PRs here couldn't be checked, sign in and try again");
+  if (open.length) why.push(`${open.length} PR${s(open.length)} still open${nr ? `, ${nr} waiting on your reply` : ''}`);
+  if (why.length) return ask({ title: `${repo} isn't finished yet`, text: `A repo can be closed once all its PRs are merged or closed. Still pending: ${why.join('; ')}.`, ok: 'OK', info: 1 });
+  const keep = r.done.length > 0;
+  if (!await ask({ title: `Close ${repo}?`, text: keep ? `Deletes its local files in ~/contrib, its scan, ideas and rejected list. Its ${r.done.length} finished PR${s(r.done.length)} stay listed under Closed repos.` : 'You have no PRs here, so it is deleted completely: local files in ~/contrib, scan, ideas, rejected list and its Forge runs.', ok: keep ? 'Close and delete files' : 'Delete repo', danger: 1 })) return;
+  try { await gc.purge(repo); } catch (e) { return ask({ title: "Couldn't delete the files", text: msg(e), ok: 'OK', info: 1 }); }
+  for (const key of ['scan', 'ideas', 'rejected']) gc.cacheSet({ repo, key, value: null }); delete CACHE[repo];
+  if (keep) (S.closed ||= {})[repo] = { at: Date.now(), prs: r.done.map(({ number, title, url, state, mergedAt, closedAt }) => ({ number, title, url, state, mergedAt, closedAt })) };
+  else { jobs.forEach(j => { j.view?.remove(); delete JOBS[j.id]; J.splice(J.indexOf(j), 1); }); saveJobs(); renderBoard(); }
+  r.el.remove(); delete R[repo]; S.repos = (S.repos || []).filter(x => x !== repo); gc.settingsSet(S);
   if (active === repo) { active = null; const n = Object.keys(R)[0]; if (n) activateRepo(n); else { $('#repo').value = ''; $('#crumb').textContent = '› pick a repo'; } }
   renderRepoList();
 }
@@ -578,21 +602,22 @@ let saveT;
 const saveJobs = () => { clearTimeout(saveT); saveT = setTimeout(() => gc.jobsSet(J.map(j => ({
   id: j.id, kind: j.kind, repo: j.repo, number: j.number, title: j.title, idea: j.idea, name: j.name, steps: j.steps, log: (j.log || '').slice(-30000),
   status: j.status, err: j.err, t0: j.t0, t1: j.t1, prUrl: j.prUrl, ck: j.ck, force: j.force,
-  cur: j.cur && { dir: j.cur.dir, branch: j.cur.branch, def: j.cur.def, direct: j.cur.direct, issue: j.cur.issue, verdict: j.cur.verdict, tests: j.cur.tests, stopped: j.cur.stopped } }))), 800); };
+  cur: j.cur && { dir: j.cur.dir, branch: j.cur.branch, def: j.cur.def, direct: j.cur.direct, issue: j.cur.issue, verdict: j.cur.verdict, tests: j.cur.tests, stopped: j.cur.stopped, testsFailed: j.cur.testsFailed } }))), 800); };
 function restoreJobs(list) {
   jid = Math.max(jid, ...list.map(o => +String(o.id).slice(1) || 0));
   for (const o of list) {
     const j = { ...o, log: o.log || '', steps: o.steps || [] };
     if (j.kind === 'fix' && j.idea && j.status === 'stopped' && j.cur?.verdict?.verdict === 'skip') addRejected(j.repo, j.idea.title, j.cur.verdict.reason); // runs auto-skipped before this existed
-    if (j.status === 'running' || j.status === 'queued' || j.status === 'ci') { // the app was closed mid-run
-      const i = j.steps.findIndex(s => s?.status === 'run'); if (i >= 0) j.steps[i] = { status: 'fail', detail: 'interrupted' };
-      j.status = 'paused'; j.err = 'The app was closed while this was running.'; j.t1 = j.t1 || Date.now();
+    if (['running', 'queued', 'ci'].includes(j.status) || (j.status === 'paused' && j.err === 'The app was closed while this was running.')) { // the app was closed mid-run: carry on where it stopped
+      if (j.ck?.ci) j.ck.ci = { round: 0, reruns: 0 };
+      j.steps = j.steps.map(s => s && (s.status === 'fail' || s.status === 'run') ? undefined : s);
+      Object.assign(j, { status: 'queued', err: '', t1: 0 }); j.log += '\n--- the app was closed mid-run: continuing automatically ---\n';
     }
     if (j.kind === 'feedback' && j.status === 'review' && j.ck?.applied && !j.ck.pushed) { // an update that stopped at review: re-check and push it automatically
       if (j.ck.testRun && !j.ck.testRun.ok && !j.ck.testRun.env) delete j.ck.testRun; // judged by an older runner (or never classified): run again
       if (!j.ck.testRun || j.ck.testRun.ok || j.ck.testRun.env) { j.steps = j.steps.slice(0, 3); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: re-running tests and pushing the update ---\n'; }
     }
-    if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && j.ck.testRun && !j.ck.testRun.ok && (j.ck.testRun.v || 0) < 3) delete j.ck.testRun; // older runner could not find the tests' runner
+    if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && j.ck.testRun && !j.ck.testRun.ok && (j.ck.testRun.v || 0) < 4) delete j.ck.testRun; // judged by an older runner (could not find the runner / counted a fixture that cannot load as failing)
     if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && j.ck.testRun && (j.ck.testRun.ok || j.ck.testRun.env || !(j.ck.tests || []).length) && !j.ck.prUrl && S.auto !== false) { j.steps = j.steps.slice(0, 8); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: opening the PR ---\n'; } // stopped before the PR was opened: finish on its own
     if (j.kind === 'fix' && j.status === 'review' && j.ck?.tested && !j.ck.testRun) { j.steps = j.steps.slice(0, 7); j.status = 'queued'; j.err = ''; j.log += '\n--- continuing automatically: running tests and opening the PR ---\n'; }
     j.view = document.createElement('div'); j.view.className = 'jobview'; j.view.style.display = 'none'; $('#jobviews').append(j.view);
@@ -630,10 +655,11 @@ function pump() { // start queued runs (oldest first) while under the parallel l
 async function run(j) {
   j.status = 'running'; j.t0 = Date.now(); j.t1 = 0; renderPane(j); paint(j); renderBoard();
   try {
-    if (j.kind === 'ideas') { j.result = await gc.ideas({ repo: j.repo, job: j.id, rejected: [...(CACHE[j.repo]?.rejected || []), ...(CACHE[j.repo]?.sent || []).map(x => ({ title: x.title, kind: 'sent', reason: 'Already sent to Forge.' }))] }); j.status = 'review'; const c = { result: j.result, log: j.log.slice(-20000), at: Date.now() }; gc.cacheSet({ repo: j.repo, key: 'ideas', value: c }); (CACHE[j.repo] ||= {}).ideas = c; }
+    if (j.kind === 'ideas') { j.result = await gc.ideas({ repo: j.repo, job: j.id, login: me?.login, rejected: [...(CACHE[j.repo]?.rejected || []), ...(CACHE[j.repo]?.sent || []).map(x => ({ title: x.title, kind: 'sent', reason: 'Already sent to Forge.' }))] }); j.status = 'review'; const c = { result: j.result, log: j.log.slice(-20000), at: Date.now() }; gc.cacheSet({ repo: j.repo, key: 'ideas', value: c }); (CACHE[j.repo] ||= {}).ideas = c; }
     else if (j.kind === 'feedback') { j.cur = await gc.feedback({ repo: j.repo, number: j.number, user: me, job: j.id, ck: j.ck, auto: S.auto !== false });
       if (j.cur.noPush) { j.doneNote = j.cur.replied ? 'Reply posted on the PR (no code change was needed).' : 'Nothing to answer: the feedback came from bots / CI only.'; j.status = 'done'; renderPane(j); }
       else if (j.cur.pushed) { j.doneNote = 'Update pushed automatically.'; j.prUrl = (R[j.repo]?.done || []).find(x => x.number === j.number)?.url || ''; await watchCi(j); setTimeout(() => refreshDone(j.repo, true), 4000); }
+      else if (j.cur.stopped) j.status = 'stopped';
       else j.status = 'review'; }
     else {
       j.cur = await gc.prepare({ repo: j.repo, number: j.number, idea: j.idea, user: me, force: j.force, job: j.id, ck: j.ck, auto: S.auto !== false });
@@ -722,6 +748,10 @@ function renderPane(j) {
     const a = p.querySelector('.pu'); if (a) a.onclick = (e) => { e.preventDefault(); go(j.prUrl); };
     return;
   }
+  if (j.status === 'stopped' && j.cur?.testsFailed) {
+    p.innerHTML = `<h3>Skipped automatically <span class="d">tests fail</span></h3><div class="card"><b>${esc(j.cur.verdict?.reason)}</b><p class="d">Nothing was pushed or posted. The changes are still in ${esc(j.cur.dir || '~/contrib')}.</p><button class="g rv">Review it anyway</button></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
+    return p.querySelector('.rv').onclick = () => { j.status = 'review'; renderPane(j); paint(j); renderBoard(); saveJobs(); };
+  }
   if (j.status === 'stopped') {
     const v = j.cur.verdict;
     p.innerHTML = `<h3>Skipped automatically <span class="d">${esc(v.verdict)}</span></h3><div class="card"><b>${esc(v.reason)}</b><p class="d">No safe small slice was found, so this run was closed and its folder removed. Nothing was pushed. This idea is now marked <b>Rejected</b> on the repo page and won’t be proposed again.</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details><button class="recheck">Look for a smaller slice</button> <button class="g force">Build it anyway (not recommended)</button>`;
@@ -759,7 +789,7 @@ async function renderFollow(j) {
     <div class="stats">${c.testsOk ? `<span class="pill ok">${ic('check')}tests passed</span>` : `<span class="pill warn">${ic('alert')}tests did not run or pass</span>`}</div>
     ${c.autoBlocked ? `<div class="w" style="margin:0 0 10px">${ic('alert')} Auto-push skipped: ${esc(c.autoBlocked)}.</div>` : ''}
     <pre>${esc(d || '(no changes: the feedback needed no code change, you can just reply)')}</pre>
-    <div class="bar"><input class="tc" value="${esc(c.testCmd || S.testCmd || '')}" placeholder="test command"><button class="g rt">Run tests</button><button class="g rd">Refresh</button></div>
+    <div class="bar"><input class="tc" value="${esc(c.testCmd || S.testCmds?.[j.repo] || '')}" placeholder="test command"><button class="g rt">Run tests</button><button class="g rd">Refresh</button></div>
     <pre class="to" style="display:none"></pre>
     <h3>Reply to post on the PR <span class="d">edit freely, leave empty for none</span></h3><textarea class="rp" style="min-height:120px">${esc(c.reply || '')}</textarea>
     <button class="push">${ic('github')} ${d ? 'Commit &amp; push update' : 'Post reply'}</button><div class="res"></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
@@ -780,14 +810,14 @@ async function renderReview(j) {
   }
   const tfiles = [...d.matchAll(/^diff --git a\/(\S+)/gm)].map(m => m[1]).filter(f => /(^|\/)(tests?|spec|__tests__)\/|[._-](test|spec)\.|Test\.(php|java|cs)$/i.test(f));
   p.innerHTML = `<h3>Review <span class="d">${esc(c.branch)} · ${esc(c.dir)}</span></h3><div class="stats">${c.testsOk === true ? `<span class="pill ok">${ic('check')}tests passed</span>` : c.testsOk === false ? `<span class="pill warn">${ic('alert')}tests did not run or pass</span>` : ''}${tfiles.length ? `<span class="pill ok">${ic('check')}${tfiles.length} test file(s): ${esc(tfiles.map(f => f.split('/').pop()).join(', '))}</span>` : `<span class="pill warn">${ic('alert')}No test files in this diff</span>`}</div>${c.autoBlocked ? `<div class="w" style="margin:0 0 10px">${ic('alert')} Auto-open skipped: ${esc(c.autoBlocked)}. Review it and open the PR yourself.</div>` : ''}<pre>${esc(d || '(no changes)')}</pre>
-    <div class="bar"><input class="tc" placeholder="test command, e.g. composer test" value="${esc(c.testCmd || S.testCmd || '')}"><button class="g rt">Run tests</button><button class="g rd">Refresh</button><button class="dr">Draft PR text</button></div>
-    <pre class="to" style="display:none"></pre><div class="pr"></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
+    <div class="bar"><input class="tc" placeholder="test command, e.g. composer test" value="${esc(c.testCmd || S.testCmds?.[j.repo] || '')}"><button class="g rt">Run tests</button><button class="g rd">Refresh</button><button class="dr">Draft PR text</button></div>
+    <pre class="to" style="display:none"></pre><div class="prf"></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
   const fail = (el, e) => el.innerHTML = `<div class="e">${esc(msg(e))}</div>`;
   q('.rd').onclick = () => renderReview(j);
-  q('.rt').onclick = async () => { S.testCmd = q('.tc').value; gc.settingsSet(S); const x = busy(q('.rt'), 'Running…'); q('.to').style.display = 'block'; q('.to').textContent = await gc.test({ dir: c.dir, cmd: S.testCmd }); x(); };
+  q('.rt').onclick = async () => { (S.testCmds ||= {})[j.repo] = q('.tc').value; delete S.testCmd; gc.settingsSet(S); const x = busy(q('.rt'), 'Running…'); q('.to').style.display = 'block'; q('.to').textContent = await gc.test({ dir: c.dir, cmd: q('.tc').value }); x(); };
   q('.dr').onclick = async () => { try {
     const x = busy(q('.dr'), 'Drafting…'); let pr; try { pr = await gc.draft({ dir: c.dir, number: j.number, issue: c.issue, tests: tfiles, testCmd: q('.tc').value }); } finally { x(); }
-    q('.pr').innerHTML = `<h3>Pull request <span class="d">edit freely</span></h3><input class="pt" value="${esc(pr.title)}"><textarea class="pb" style="min-height:340px">${esc(pr.body)}</textarea><button class="ship">Commit as ${esc(me.login)} &amp; open PR</button><div class="res"></div>`;
+    q('.prf').innerHTML = `<h3>Pull request <span class="d">edit freely</span></h3><input class="pt" value="${esc(pr.title)}"><textarea class="pb" style="min-height:340px">${esc(pr.body)}</textarea><button class="ship">Commit as ${esc(me.login)} &amp; open PR</button><div class="res"></div>`;
     q('.ship').onclick = async () => { try {
       if (!tfiles.length && !await ask({ title: 'No unit tests', text: 'Maintainers usually expect them. Open the PR anyway?', ok: 'Open anyway', danger: 1 })) return;
       if (!await ask({ title: 'Open pull request?', text: `Push ${c.branch} to ${c.direct ? j.repo + ' (direct, you have write access)' : 'your fork'} and open a PR to ${j.repo} as ${me.login}.`, ok: 'Open PR' })) return;
@@ -796,7 +826,7 @@ async function renderReview(j) {
       if (S.auto !== false) startCi(j);
       q('.res').innerHTML = `Opened: <a href="#" class="pu">${esc(url)}</a>`; q('.pu').onclick = (e) => { e.preventDefault(); go(url); };
     } catch (e) { fail(q('.res'), e); } };
-  } catch (e) { fail(q('.pr'), e); } };
+  } catch (e) { fail(q('.prf'), e); } };
 }
 
 // ---------- notifications: forge runs finishing / failing / going quiet, replies, merges ----------

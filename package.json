@@ -1,6 +1,6 @@
 {
   "name": "gh-contrib",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Find popular GitHub repos, scan them for good issues, fix with an AI draft, and open the PR as yourself",
   "main": "main.js",
   "scripts": {

@@ -13,6 +13,10 @@ const run = (cmd, args, opts = {}) => new Promise((res, rej) =>
 const gh = (...a) => run('gh', a, { cwd: os.homedir() }); // not the app dir: root-owned, git there says 'dubious ownership'
 const git = (dir, ...a) => run('git', a, { cwd: dir });
 const locks = {};
+// Project git hooks (husky, lint-staged) live in the shared .git/hooks, so in a worktree without node_modules they cannot even start.
+// A hook that fails to RUN is this machine's problem, not the change's: retry without hooks. A hook that runs and rejects still blocks.
+const HOOK_ENV = /could not determine executable to run|command not found|: not found|Cannot find module|can't find husky/i;
+const gitH = async (dir, ...a) => { try { return await git(dir, ...a); } catch (e) { if (!HOOK_ENV.test(e.message)) throw e; return git(dir, ...a, '--no-verify'); } };
 const pendingLock = {};
 const withLock = (k, fn, onWait) => { if (pendingLock[k] > 0) onWait?.(); pendingLock[k] = (pendingLock[k] || 0) + 1; const p = (locks[k] || Promise.resolve()).then(fn); locks[k] = p.catch(() => {}).then(() => { pendingLock[k]--; }); return p; };
 const dirOf = (repo) => path.join(WORK, repo.replace('/', '__'));
@@ -177,7 +181,7 @@ ipcMain.handle('scan', async (e, repo) => {
 });
 
 // ---- ideas: features + security, one read-only model pass. Security items are never filed publicly ----
-ipcMain.handle('ideas', async (e, { repo, job, rejected = [] }) => {
+ipcMain.handle('ideas', async (e, { repo, job, login, rejected = [] }) => {
   aborted.delete(job);
   const step = (i, status, detail = '') => e.sender.send('step', { job, i, status, detail });
   const log = (t) => e.sender.send('log', { job, t: t + '\n' });
@@ -192,7 +196,10 @@ ipcMain.handle('ideas', async (e, { repo, job, rejected = [] }) => {
     // PRs maintainers closed without merging: ideas like these are not wanted
     const declined = JSON.parse(await gh('pr', 'list', '-R', repo, '-s', 'closed', '-L', '60', '--json', 'number,title,mergedAt').catch(() => '[]'))
       .filter(p => !p.mergedAt).map(p => ({ title: p.title, reason: `A similar PR (#${p.number} "${p.title}") was closed without being merged.` }));
-    step(0, 'done', `${JSON.parse(issues).length} open issues, ${declined.length} declined PRs listed`);
+    // your own PRs here (open, merged or closed): never propose the same work again
+    const mine = !login ? [] : JSON.parse(await gh('pr', 'list', '-R', repo, '--author', login, '-s', 'all', '-L', '100', '--json', 'number,title,state').catch(() => '[]'))
+      .map(p => ({ title: p.title, kind: 'mine', pr: `#${p.number}, ${p.state.toLowerCase()}`, reason: `You already did this in PR #${p.number} (${p.state.toLowerCase()}).` }));
+    step(0, 'done', `${JSON.parse(issues).length} open issues, ${declined.length} declined PRs, ${mine.length} of your PRs listed`);
     step(i = 1, 'run'); const dir = path.join(WORK, '_read', repo.replace('/', '__'));
     const okDir = fs.existsSync(dir) && await git(dir, 'rev-parse', '--verify', 'HEAD').then(() => true).catch(() => false);
     if (!okDir) { // atomic: clone to .partial, then rename, so a stopped run never leaves a broken folder behind
@@ -212,11 +219,11 @@ Reply with ONLY a JSON array (no prose before or after), each item:
 {"title":"short imperative title","kind":"feature|performance|dx|architecture|tooling|testing|docs","pitch":"1-2 sentences: what users get and why they would love it","evidence":"what you saw in the code/issues, with paths","change":"the approach: files to touch, the public API sketch, how it fits the architecture","impact":"who benefits and how much","risk":"low|medium|high","effort":"hours|days|weeks","security":false}
 Set "security":true for any suspected vulnerability and put NO exploit details: only "report privately via SECURITY.md" in "pitch".
 
-${meta}\nOpen issues: ${issues}\n\nALREADY REJECTED OR DECLINED (do not propose again):\n${[...rejected, ...declined].slice(0, 80).map(x => '- ' + x.title).join('\n') || '(none)'}`, { cwd: dir, read: true, onLog: log, job });
+${meta}\nOpen issues: ${issues}\n\nALREADY REJECTED OR DECLINED (do not propose again):\n${[...rejected, ...declined].slice(0, 80).map(x => '- ' + x.title).join('\n') || '(none)'}\n\nALREADY DONE BY THIS CONTRIBUTOR in their own PRs, open, merged or closed (do not propose the same change or a near-identical variant; build on them only with clearly different work):\n${mine.map(x => `- ${x.title} (${x.pr})`).join('\n') || '(none)'}`, { cwd: dir, read: true, onLog: log, job });
     step(2, 'done', 'analysed');
     let out2 = out; // second line of defence: flag any proposed idea that matches a rejected idea or a declined PR
-    try { const list = JSON.parse(out.slice(out.indexOf('['), out.lastIndexOf(']') + 1)), pool = [...rejected, ...declined];
-      for (const x of list.slice()) { const h = G.matchIdea(x.title, pool); if (h?.kind === 'sent') { list.splice(list.indexOf(x), 1); log(`Dropped "${x.title}": already sent to Forge.`); continue; } if (h) { x.rejected = h.reason; x.rejectedKind = h.kind || 'declined'; log(`Rejected automatically: "${x.title}": ${h.reason}`); } } out2 = JSON.stringify(list); } catch {} step(i = 3, 'done', 'ideas ready');
+    try { const list = JSON.parse(out.slice(out.indexOf('['), out.lastIndexOf(']') + 1)), pool = [...rejected, ...declined, ...mine];
+      for (const x of list.slice()) { const h = G.matchIdea(x.title, pool); if (h?.kind === 'sent' || h?.kind === 'mine') { list.splice(list.indexOf(x), 1); log(`Dropped "${x.title}": ${h.kind === 'mine' ? h.reason : 'already sent to Forge.'}`); continue; } if (h) { x.rejected = h.reason; x.rejectedKind = h.kind || 'declined'; log(`Rejected automatically: "${x.title}": ${h.reason}`); } } out2 = JSON.stringify(list); } catch {} step(i = 3, 'done', 'ideas ready');
     return out2;
   } catch (err) { step(i, 'fail', err.message.slice(0, 60)); log('FAILED: ' + err.message); throw err; }
 });
@@ -356,7 +363,7 @@ DIFF:\n${patch}`, { cwd: dir, edit: true, onLog: log, job });
     if (!ck.testRun) {
       step(i = 7, 'run');
       const tr0 = await verifyTests({ dir, files: tests, job, log, step, idx: 7 });
-      save({ testRun: { v: 3, ok: tr0.ok, env: tr0.env, cmd: tr0.cmd, reason: tr0.reason } });
+      save({ testRun: { v: 4, ok: tr0.ok, env: tr0.env, cmd: tr0.cmd, reason: tr0.reason } });
       if (!tr0.ok) log(`Tests did not pass: ${tr0.reason}`);
     }
     const tr = ck.testRun;
@@ -377,6 +384,10 @@ DIFF:\n${patch}`, { cwd: dir, edit: true, onLog: log, job });
         if (/Stopped by you/.test(err.message)) throw err;
         log('Auto-open blocked: ' + err.message); step(8, 'run', 'your review'); return { ...res, autoBlocked: err.message };
       }
+    }
+    if (auto && !tr.ok && !tr.env && tests.length) { // tests genuinely fail after the repair attempts: publish nothing, close the run
+      step(i = 8, 'fail', 'skipped: tests fail'); log(`Skipping automatically: ${tr.reason}. Nothing was pushed.`);
+      return { ...res, stopped: true, testsFailed: true, verdict: { ...(v || {}), verdict: 'tests fail', reason: `Tests still fail (${tr.reason}), so nothing was published.` } };
     }
     step(i = 8, 'run', 'your review');
     return { ...res, autoBlocked: !auto ? null : tr.ok ? 'the change has no test files' : `tests did not pass (${tr.reason})` };
@@ -436,9 +447,9 @@ async function shipPr({ repo, dir, branch, def, direct, title, body, user, draft
   const top = topicalOf(repo, dir), hit = G.findTraceT(top, title, body, names, G.addedLines(await git(dir, 'diff', '--cached')));
   if (hit) throw new Error(`Blocked, AI/co-author trace found: "${hit}"`);
   const lead = (body.split(/\n\s*\n/).find(p => p.trim() && !/^#/.test(p.trim())) || '').trim(); // first prose paragraph, not a heading
-  await git(dir, 'commit', '-m', title, ...(lead ? ['-m', lead] : []));
+  await gitH(dir, 'commit', '-m', title, ...(lead ? ['-m', lead] : []));
   const hit2 = G.findTraceT(top, await git(dir, 'log', '-1', '--format=%B')) || G.findTrace(await authorOf(dir)); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
-  await git(dir, 'push', '-u', 'origin', branch, '--force-with-lease');
+  await gitH(dir, 'push', '-u', 'origin', branch, '--force-with-lease');
   const url = (await gh('pr', 'create', '-R', repo, '--head', direct ? branch : `${user.login}:${branch}`, '--base', def, '--title', title, '--body', body, ...(draft ? ['--draft'] : []))).trim();
   prs[repo] = [...times.filter(t => Date.now() - t < 864e5), Date.now()]; writeJson('prs.json', prs);
   return url;
@@ -490,7 +501,9 @@ async function verifyTests({ dir, files, job, log, step, idx }) {
     step(idx, 'run', n ? `re-running (${n}/2)…` : 'running tests…'); log('$ ' + d.cmd);
     const r = await sh(d.cmd, dir, log, job, 15 * 60e3); chk(job);
     if (!r.code) return { ok: true, cmd: d.cmd };
-    const envErr = /command not found|vendor\/bin\/\S+: No such file|no PHP test runner|is missing from your system|Cannot find module|No module named|Failed opening required|ext-\S+ .*missing/i.test(r.out);
+    // a suite that cannot even LOAD (Babel/Jest config, e.g. a fixture app's JSX under the root config) while the tests that did load all pass
+    const loadFail = /^\s*Test Suites:.*failed/m.test(r.out) && /^\s*Tests:\s+\d+ passed/m.test(r.out) && !/^\s*Tests:.*failed/m.test(r.out);
+    const envErr = loadFail || /Support for the experimental syntax|Cannot use import statement outside a module|command not found|vendor\/bin\/\S+: No such file|no PHP test runner|is missing from your system|Cannot find module|No module named|Failed opening required|ext-\S+ .*missing/i.test(r.out);
     if (envErr) return { ok: false, env: true, cmd: d.cmd, reason: 'environment problem running the tests (missing tool or extension)' };
     if (n >= 2) return { ok: false, cmd: d.cmd, reason: 'tests still fail after 2 repair attempts' };
     step(idx, 'run', `fixing failures (${n + 1}/2)…`); log('Tests failed, asking for a fix…');
@@ -596,9 +609,12 @@ FEEDBACK:\n${fb.text || '(no human comments; focus on the failing checks)'}\n\nF
       const names = (await git(dir, 'diff', '--name-only')).split('\n').filter(f => TEST_RE.test(f));
       const prFiles = (await gh('pr', 'diff', String(number), '-R', repo, '--name-only').catch(() => '')).split('\n').filter(f => TEST_RE.test(f));
       const tr = await verifyTests({ dir, files: [...names, ...prFiles], job, log, step, idx: 3 });
-      save({ testRun: { v: 3, ok: tr.ok, env: tr.env, cmd: tr.cmd, reason: tr.reason } });
+      save({ testRun: { v: 4, ok: tr.ok, env: tr.env, cmd: tr.cmd, reason: tr.reason } });
     }
-    const tr = ck.testRun; step(3, tr.ok || tr.env ? 'done' : 'fail', tr.ok ? 'passed' : tr.env ? 'skipped here, project CI will run them' : tr.reason); chk(job);
+    const tr = { ...ck.testRun };
+    // feedback that touches no tests (doc comments, wording, config) has nothing to run here: push and let the project CI judge it
+    if (!tr.ok && !tr.env && tr.reason === 'no test files were written') Object.assign(tr, { env: true, reason: 'no tests in this change' });
+    step(3, tr.ok || tr.env ? 'done' : 'fail', tr.ok ? 'passed' : tr.env ? 'skipped here, project CI will run them' : tr.reason); chk(job);
     const res = { dir, branch: fb.branch, direct: !fb.cross, reply: ck.reply, testCmd: tr.cmd, testsOk: tr.ok, issue: { title: fb.title, body: fb.text }, followup: true };
     if (ck.pushed) { step(4, 'done', 'update pushed'); return { ...res, pushed: true, noPush: !!ck.noPush, cla: !!ck.cla }; }
     const changed = (await git(dir, 'status', '--porcelain')).trim();
@@ -624,6 +640,10 @@ FEEDBACK:\n${fb.text || '(no human comments; focus on the failing checks)'}\n\nF
         log('Auto-push blocked: ' + err.message); step(4, 'run', 'your review'); return { ...res, autoBlocked: err.message };
       }
     }
+    if (auto && changed && !tr.ok && !tr.env) { // the fix breaks tests even after repairs: push nothing, post nothing
+      step(i = 4, 'fail', 'skipped: tests fail'); log(`Skipping automatically: ${tr.reason}. Nothing was pushed or posted.`);
+      return { ...res, stopped: true, testsFailed: true, verdict: { verdict: 'tests fail', reason: `Tests still fail (${tr.reason}), so nothing was pushed or posted on the PR.` } };
+    }
     step(i = 4, 'run', 'your review');
     return { ...res, autoBlocked: !auto ? null : !changed ? 'the feedback needed no code change, so nothing to push: review the reply and post it yourself' : `tests did not pass (${tr.reason})` };
   } catch (err) { step(i, 'fail', err.message.slice(0, 60)); log((/Stopped by you/.test(err.message) ? 'STOPPED: ' : 'FAILED: ') + err.message); throw err; }
@@ -640,9 +660,9 @@ async function pushUpdate({ repo, number, dir, branch, message, reply, threads }
   if (!names.trim()) throw new Error('Nothing staged: there are no changes to push.');
   const top = topicalOf(repo, dir), hit = G.findTraceT(top, message, reply, names, G.addedLines(await git(dir, 'diff', '--cached')));
   if (hit) throw new Error(`Blocked, AI/co-author trace found: "${hit}"`);
-  await git(dir, 'commit', '-m', message);
+  await gitH(dir, 'commit', '-m', message);
   const hit2 = G.findTraceT(top, await git(dir, 'log', '-1', '--format=%B')) || G.findTrace(await authorOf(dir)); if (hit2) { await git(dir, 'reset', '--soft', 'HEAD~1'); throw new Error(`Blocked after commit (undone): "${hit2}"`); }
-  await git(dir, 'push', 'origin', branch);
+  await gitH(dir, 'push', 'origin', branch);
   if ((reply || '').trim()) await postReply(repo, number, reply, threads);
   return true;
 }
@@ -737,6 +757,15 @@ FAILED CI OUTPUT (tail):${text || ' (not available)'}`, { cwd: dir, edit: true, 
 
 ipcMain.handle('open', (e, { url, copy }) => { if (copy) clipboard.writeText(copy); return shell.openExternal(url); });
 // Forge runs survive restarts (steps, log, status, branch/worktree info)
+// ---- free disk space for a closed repo: its shared clone, every worktree of it, and the read-only clone ----
+ipcMain.handle('purge', (e, repo) => {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(String(repo)) || repo.includes('..')) throw new Error('Bad repo name: ' + repo); // never build a path from anything else
+  const name = path.basename(dirOf(repo)), rd = path.join(WORK, '_read', name);
+  // ponytail: prefix match on "<owner>__<name>--", would also catch a sibling repo literally named "<name>--x" in the same owner
+  const hits = fs.existsSync(WORK) ? fs.readdirSync(WORK).filter(n => n === name || n === name + '.partial' || n.startsWith(name + '--')).map(n => path.join(WORK, n)) : [];
+  for (const d of [...hits, rd, rd + '.partial']) fs.rmSync(d, { recursive: true, force: true });
+  return hits.length;
+});
 ipcMain.handle('jobs:get', () => readJson('jobs.json', []));
 ipcMain.handle('jobs:set', (e, list) => { writeJson('jobs.json', list); return true; });
 // scan + ideas results survive restarts: cache.json = { 'owner/name': { scan: {data, at}, ideas: {result, log, at} } }
