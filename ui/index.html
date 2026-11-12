@@ -65,6 +65,7 @@ button{transition:filter .15s}button:hover:not(:disabled){filter:brightness(1.12
 @keyframes spin{to{transform:rotate(360deg)}}
 button.ld{position:relative;color:transparent!important;pointer-events:none}button.ld *{opacity:0}
 button.ld::after{content:'';position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;border:2px solid rgba(142,198,255,.35);border-top-color:var(--acc);animation:spin .7s linear infinite}
+.ci-refresh{margin-left:auto;padding:4px 8px;font-size:11px}
 .st b{font-size:12px;display:block}.st small{color:var(--dim);font-size:11px}.st.done small{color:var(--ok)}.st.pend{opacity:.5}
 .pane{flex:1;padding:16px;min-width:0;overflow:auto}.pane h3{display:flex;gap:10px;align-items:baseline}
 .logbox{max-height:none;min-height:340px;font-size:12px;line-height:1.7}.logbox:empty:before{content:'Waiting…'}
@@ -630,15 +631,16 @@ function restoreJobs(list) {
   renderBoard(); renderRepoList();
 }
 // after the PR exists: wait for its GitHub checks; the backend re-runs flaky jobs and fixes real failures until green
-async function watchCi(j) {
+const canRefreshCi = j => !['queued', 'running', 'ci'].includes(j.status) && j.kind !== 'ideas' && /\/pull\/\d+/.test(String(j.prUrl || j.cur?.pr || j.ck?.prUrl || (j.kind === 'feedback' ? '/pull/' + j.number : '')));
+async function watchCi(j, force) {
   const number = j.kind === 'feedback' ? j.number : +((String(j.prUrl || j.cur?.pr || j.ck?.prUrl || '').match(/\/pull\/(\d+)/) || [])[1]);
-  if (S.auto === false || !number) { j.status = 'done'; return; } // manual mode: you handle CI yourself
+  if ((S.auto === false && !force) || !number) { j.status = 'done'; return; } // manual mode: you handle CI yourself
   j.status = 'ci'; renderPane(j); paint(j); renderBoard(); saveJobs();
   const r = await gc.ci({ repo: j.repo, number, job: j.id, ck: j.ck, cur: { dir: j.cur.dir, branch: j.cur.branch, tests: j.cur.tests }, idx: STEPSOF(j).length - 1, draft: !!j.cur.draft });
   if (r.green) { j.status = 'done'; j.ciGreen = true; if (r.cla) j.ck = { ...(j.ck || {}), cla: true }; } else { j.status = 'failed'; j.err = 'CI is not green: ' + r.reason; }
 }
-function startCi(j) { // for the manual paths (you opened the PR / pushed the update yourself)
-  watchCi(j).catch(e => { j.err = msg(e); j.status = /Stopped by you/.test(j.err) ? 'paused' : 'failed'; if (j.status === 'paused') j.err = 'You stopped this run.'; })
+function startCi(j, force) { // for the manual paths (you opened the PR / pushed the update yourself)
+  watchCi(j, force).catch(e => { j.err = msg(e); j.status = /Stopped by you/.test(j.err) ? 'paused' : 'failed'; if (j.status === 'paused') j.err = 'You stopped this run.'; })
     .finally(() => { j.t1 = Date.now(); renderPane(j); paint(j); renderBoard(); pump(); });
 }
 function stopJob(j) {
@@ -729,7 +731,8 @@ function renderJobView(j) {
 }
 function paint(j) {
   const ST = STEPSOF(j), q = (s) => j.view.querySelector(s); if (!q('.steps')) return;
-  q('.steps').innerHTML = ST.map((n, i) => { const st = j.steps[i]; return `<div class="st ${st?.status || 'pend'}"><span class="dot">${st?.status === 'done' ? ic('check') : st?.status === 'fail' ? ic('x') : st?.status === 'run' ? '' : i + 1}</span><div><b>${n}</b><small>${esc(st?.detail || '')}</small></div></div>`; }).join('');
+  q('.steps').innerHTML = ST.map((n, i) => { const st = j.steps[i]; return `<div class="st ${st?.status || 'pend'}"><span class="dot">${st?.status === 'done' ? ic('check') : st?.status === 'fail' ? ic('x') : st?.status === 'run' ? '' : i + 1}</span><div><b>${n}</b><small>${esc(st?.detail || '')}</small></div>${i === ST.length - 1 && st?.status !== 'done' && canRefreshCi(j) ? `<button class="g ci-refresh" title="Check the PR's CI again">${ic('play')} Refresh</button>` : ''}</div>`; }).join('');
+  const rf = q('.ci-refresh'); if (rf) rf.onclick = () => { j.steps[ST.length - 1] = undefined; startCi(j, true); };
   q('.segs').innerHTML = ST.map((n, i) => `<i class="${j.steps[i]?.status || ''}"></i>`).join('');
   q('.cnt').textContent = `${j.steps.filter(x => x?.status === 'done').length}/${ST.length} steps · ${j.t0 ? mmss((j.t1 || Date.now()) - j.t0) : 'queued'}`;
 }
