@@ -736,6 +736,14 @@ function digest(raw, max = 6000) {
   const out = L.filter((l, i) => keep[i] && l.trim()).join('\n');
   return (out.length > 200 ? out : L.join('\n')).slice(0, max) || '(empty log)'; // ponytail: first blocks win; the first failure is usually the cause
 }
+// re-run the failed jobs; without admin rights on the repo that fails, so retrigger CI the way contributors do: push an empty commit. Returns the new head sha when it did, else true/false.
+async function rerunFailed(repo, ids, log, dir, branch) {
+  let ok = 0; for (const id of ids) await gh('run', 'rerun', id, '-R', repo, '--failed').then(() => ok++).catch(() => {});
+  if (ok) return true;
+  if (!dir || !branch) return false;
+  try { log('No permission to re-run jobs here: pushing an empty commit to retrigger CI…'); await gitH(dir, 'commit', '--allow-empty', '-m', 'Retrigger CI'); await gitH(dir, 'push', 'origin', branch); return (await git(dir, 'rev-parse', 'HEAD')).trim(); }
+  catch (err) { log('Could not retrigger CI: ' + String(err.message).split('\n')[0].slice(0, 160)); return false; }
+}
 async function ciLogs(repo, bad) {
   const ids = [...new Set(bad.map(c => (String(c.detailsUrl || '').match(/\/actions\/runs\/(\d+)/) || [])[1]).filter(Boolean))].slice(0, 4);
   let text = ''; for (const id of ids) text += `\n--- failed CI run ${id} ---\n` + digest(await gh('run', 'view', id, '-R', repo, '--log-failed').catch(() => ''));
@@ -763,8 +771,8 @@ ipcMain.handle('ci', async (e, { repo, number, job, ck: saved, cur, idx, draft }
       // flaky infrastructure: re-run the failed jobs instead of changing code (max 2x)
       if ((onlyCancelled || FLAKY.test(text)) && ci.reruns < 2 && ids.length) {
         ci.reruns++; save({ ci }); log(`Looks like an infrastructure/flaky failure: re-running the failed jobs (${ci.reruns}/2)…`);
-        for (const id of ids) await gh('run', 'rerun', id, '-R', repo, '--failed').catch(err => log('rerun: ' + err.message));
-        expectSha = null; await sleepJob(job, 30000); continue;
+        { const r = await rerunFailed(repo, ids, log, cur.dir, cur.branch); if (r) { expectSha = typeof r === 'string' ? r : null; await sleepJob(job, 30000); continue; } }
+        ci.reruns = 2; save({ ci }); // cannot re-run or retrigger here: go on to the fix attempt instead of waiting on an identical result
       }
       if (ci.round >= 3) { step(idx, 'fail', 'still failing after 3 fix rounds'); return { green: false, reason: `still failing after 3 fix rounds: ${failing.slice(0, 4).join(', ')}` }; }
       ci.round++; save({ ci }); step(idx, 'run', `fixing CI (round ${ci.round}/3)…`); log(`Fixing the failing checks (round ${ci.round}/3)…`);
@@ -781,11 +789,11 @@ FAILED CI OUTPUT (tail):${text || ' (not available)'}`, { cwd: dir, edit: true, 
       if (!(await git(dir, 'status', '--porcelain')).trim()) { // the AI judged the failure unrelated to this PR: re-run it (runner flakiness), and if it still fails accept it as unrelated instead of failing the run
         if (ci.reruns < 2 && ids.length) {
           ci.reruns++; ci.round--; save({ ci }); log(`The AI found nothing in this PR to fix: re-running the failed jobs (${ci.reruns}/2) in case it was a flaky runner…`);
-          for (const id of ids) await gh('run', 'rerun', id, '-R', repo, '--failed').catch(err => log('rerun: ' + err.message));
-          expectSha = null; await sleepJob(job, 30000); continue;
+          { const r = await rerunFailed(repo, ids, log, cur.dir, cur.branch); if (r) { expectSha = typeof r === 'string' ? r : null; await sleepJob(job, 30000); continue; } }
+          ci.reruns = 2; save({ ci }); ci.round++; // could not re-run or retrigger: judge it as is
         }
-        log(`Still failing after re-runs, and the AI found no link to this PR's changes: ${failing.join(', ')}. Treating as unrelated to this PR.`);
-        step(idx, 'done', 'done, unrelated check(s) failing'); return { green: true, unrelated: failing };
+        log(`Still failing after re-running/retriggering, and the AI found no link to this PR's changes: ${failing.join(', ')}.`);
+        step(idx, 'fail', 'unrelated check still failing'); return { green: false, reason: `${failing.slice(0, 4).join(', ')} keeps failing, but the AI found no link to this PR's changes (retriggered CI ${ci.reruns}x). Look at the failure on GitHub; it may be broken on the base branch too.` };
       }
       const tfiles = (await git(dir, 'diff', '--name-only', 'HEAD')).split('\n').filter(f => TEST_RE.test(f)).concat(cur.tests || []);
       const tr = await verifyTests({ dir, files: [...new Set(tfiles)], job, log, step, idx });
