@@ -29,4 +29,6 @@ const pickTitle = (lines) => { const i = lines.findIndex(l => { const t = l.repl
 const replyThreads = (fresh) => { const h = fresh.filter(r => !r.bot); return h.length && h.every(r => r.kind === 'inline' && r.id) ? [...new Set(h.map(r => r.root || r.id))] : []; };
 // replies must describe finished work, never promise it ("I'll add", "will be added", "once I run")
 const promises = (t) => (String(t).match(/\b(I['’]?ll|I will|I am going to|will be added|gets added|once I (run|generate|add)|I['’]m (posting|adding|regenerating)|separate comment)\b/i) || [])[0] || null;
-module.exports = { promises, replyThreads, pickTitle, isBot, rejectKind, similar, matchIdea, lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };
+// ponytail: sentence split on .!? — a promise sentence with a dotted filename may lose a fragment; fine for a reply
+const dropPromises = (t) => String(t || '').split('\n').map(l => l.split(/(?<=[.!?])\s+/).filter(x => !promises(x)).join(' ')).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+module.exports = { promises, dropPromises, replyThreads, pickTitle, isBot, rejectKind, similar, matchIdea, lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };

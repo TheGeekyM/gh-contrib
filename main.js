@@ -633,9 +633,8 @@ FEEDBACK:\n${fb.text || '(no human comments; focus on the failing checks)'}\n\nF
     const changed = (await git(dir, 'status', '--porcelain')).trim();
     // auto: push the update (and post the reply) when the tests passed, or could not run here and CI will check. Pure replies with no code change stay for your review.
     if (auto && !changed) { // nothing to push: answer the humans (if any) with the drafted reply, never reply to bots
-      step(i = 4, 'run', 'posting reply…'); const reply = fb.text.trim() ? (ck.reply || '').trim() : '';
+      step(i = 4, 'run', 'posting reply…'); const reply = fb.text.trim() ? G.dropPromises(ck.reply) : ''; // promise sentences are cut, not blocking
       const hit = reply && G.findTraceT(topicalOf(repo, dir), reply);
-      const pr = reply && G.promises(reply); if (pr) { log('Reply held back (it promises future work): ' + pr); step(4, 'run', 'your review'); return { ...res, autoBlocked: 'the drafted reply promises work that is not in the PR ("' + pr + '"): fix the work or edit the reply' }; }
       if (hit) { log('Reply held back (trace check): ' + hit); step(4, 'run', 'your review'); return { ...res, autoBlocked: 'the drafted reply tripped the no-AI-trace check: edit it and post it yourself' }; }
       if (reply) { await postReply(repo, number, reply, ck.threads); log('Reply posted on the PR.'); }
       else log('Nothing to answer (the feedback came from bots / CI only).');
@@ -667,7 +666,7 @@ async function postReply(repo, number, body, threads = []) {
   for (const id of threads) await gh('api', '-X', 'POST', `repos/${repo}/pulls/${number}/comments/${id}/replies`, '-f', `body=${body}`);
 }
 async function pushUpdate({ repo, number, dir, branch, message, reply, threads }) {
-  const pr = G.promises(reply); if (pr) throw new Error(`Reply promises future work ("${pr}"): finish the work or edit the reply first.`);
+  reply = G.dropPromises(reply); // cut "I'll ..." sentences instead of refusing to push
   await git(dir, 'add', '-A');
   const names = await git(dir, 'diff', '--cached', '--name-only');
   if (!names.trim()) throw new Error('Nothing staged: there are no changes to push.');

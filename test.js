@@ -49,4 +49,5 @@ console.log('ok threads');
 assert(g.promises("The snapshot itself gets added to the PR from a real run"));
 assert(g.promises("I'll regenerate it"));
 assert.strictEqual(g.promises('I removed the skip guards and added the fixture.'), null);
+assert.strictEqual(g.dropPromises("Fixed the test. I'll add docs later.\n\n- Renamed `a.rs`."), 'Fixed the test.\n\n- Renamed `a.rs`.');
 console.log('ok promises');
