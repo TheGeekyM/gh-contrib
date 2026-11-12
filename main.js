@@ -301,6 +301,16 @@ ipcMain.handle('prepare', async (e, { repo, number, idea, user, force, job, ck: 
     // step 4: validate before spending effort: read the docs, the thread AND the code
     if (!ck.verdict) {
       step(i = 4, 'run', 'reading the code…'); log('Validating: is it a real, current, fixable issue? (read-only pass over the code)');
+      // earlier attempts at the same thing (open, merged OR closed PRs/issues): a maintainer may have already declined or be handling it
+      const words = String(issue.title).toLowerCase().replace(/[^a-z0-9_\s-]/g, ' ').split(/\s+/).filter(w => w.length > 3 && !/^(add|support|make|allow|when|that|with|from|this|have|into|more|than|also|could|should|instead|using)$/.test(w)).slice(0, 7).join(' ');
+      let prior = '', nf = 0; if (words) for (const kind of ['prs', 'issues']) try {
+        const hits = JSON.parse(await gh('search', kind, words, '--repo', repo, '--limit', '8', '--json', 'number,title,state,url')).filter(h => h.number !== number);
+        for (const h of hits) { // the last maintainer words on the first few explain why it was closed / declined
+          const cm = nf++ < 4 ? await gh('api', `repos/${repo}/issues/${h.number}/comments`, '--jq', '[.[-3:][]|"@"+.user.login+": "+.body[0:500]]|join(" | ")').catch(() => '') : '';
+          prior += `- ${kind === 'prs' ? 'PR' : 'issue'} #${h.number} (${h.state}): ${h.title}${cm.trim() ? '\n  #last comments: ' + cm.trim() : ''}\n`;
+        }
+      } catch {}
+      if (prior) log('Related PRs/issues found:\n' + prior.trim());
       const raw = await claude(rulesFor(repo) + `You triage ${what} for ${repo} for a first-time contributor. The repo is checked out in the current directory (default branch).
 Read the issue and thread below, then INVESTIGATE THE CODE with your tools. Decide:
 - real: does the code actually have this bug / lack this feature today? (it may already be fixed, be a misuse, a duplicate, or by design)
@@ -309,6 +319,9 @@ Read the issue and thread below, then INVESTIGATE THE CODE with your tools. Deci
 Be skeptical, cite file paths. Reply with a short analysis, then as the LAST line only JSON:
 If the verdict would be "skip" only because the proposal is TOO BIG (new public API, cross-cutting redesign, needs maintainer design sign-off), also look for a SMALL FIRST SLICE: one focused, self-contained change (no new public API, no redesign, touches a few files, useful on its own, and consistent with what maintainers would welcome). If such a slice exists put it in "slice"; otherwise null. Never offer a slice for: security issues, things already fixed or by design, duplicates, or anything a maintainer declined.
 {"verdict":"fix"|"skip"|"unclear","real":true|false,"reason":"one sentence","plan":"files and change you would make, or empty","slice":{"title":"short imperative title","plan":"exactly what the small slice changes, which files"} or null}
+
+PRIOR WORK: below are PRs/issues in this repo that may cover the same thing (any state). Their last comments are included. If the same or a near-identical change is open, was merged, or was CLOSED/declined by a maintainer, the verdict is "skip" (duplicate) unless you can name the exact reason it failed and show this change avoids it. Also check whether the repo's existing tooling already solves the stated problem (e.g. an existing test helper or mock), in which case it is not a real need.
+${prior || '(none found)'}
 
 TITLE: ${issue.title}\nSTATE: ${issue.state}\nLABELS: ${issue.labels.map(l => l.name).join(', ')}\n\n${issue.body}\n\nTHREAD:\n${thread}`, { cwd: dir, read: true, onLog: log, job });
       let vv; try { vv = G.lastJson(raw); } catch { throw new Error('Could not read the validation answer (not skipped): resume to retry.'); }
@@ -351,7 +364,7 @@ ${task !== issue ? 'IMPORTANT: this is deliberately a SMALL first slice of a big
       const tout = await claude(`You write unit tests for a change already made in the repository in the current directory (the diff is below).
 1. Find the existing test suite (Glob test/, tests/, spec/, __tests__, *Test.php, *.test.*, *_test.*). Read 2-3 tests next to the changed code and COPY their conventions: framework, base classes, helpers, factories, naming, file location.
 2. Write focused unit tests for the change: the main behaviour, edge cases, and the bug/feature itself, so they would FAIL without the change and PASS with it. Prefer several small tests over one big one.
-3. Only create or edit test files. Do not touch source files. Do not run git. No comments or text mentioning AI tools.
+3. Before finishing, mentally run EVERY test against the implementation: check constructor/option validation and preconditions (a test must not use arguments the code rejects), exact exception messages, and that expected values are computed from the code, not guessed. A test that fails in CI is worse than none. Only create or edit test files. Do not touch source files. Do not run git. No comments or text mentioning AI tools.
 4. If the repo truly has no test setup, say so in one line and write nothing.
 ${ck.testStarted ? '5. An earlier attempt was interrupted: some tests may already exist in the diff; extend them, do not duplicate.\n' : ''}End with a one-line list of the test files you added or changed.
 
@@ -577,7 +590,7 @@ ipcMain.handle('feedback', async (e, { repo, number, user, job, ck: saved, auto 
       const failing = bad.map(c => c.name || c.context);
       // the actual failure output of the failing CI runs (not just their names)
       const runIds = [...new Set(bad.map(c => (String(c.detailsUrl || '').match(/\/actions\/runs\/(\d+)/) || [])[1]).filter(Boolean))].slice(0, 3);
-      let ci = ''; for (const id of runIds) { log(`Fetching the failure log of CI run ${id}…`); ci += `\n--- failed CI run ${id} ---\n` + (await gh('run', 'view', id, '-R', repo, '--log-failed').catch(() => '')).slice(-5000); }
+      let ci = ''; for (const id of runIds) { log(`Fetching the failure log of CI run ${id}…`); ci += `\n--- failed CI run ${id} ---\n` + digest(await gh('run', 'view', id, '-R', repo, '--log-failed').catch(() => '')); }
       const text = human.map(r => `@${r.who} (${r.kind}${r.path ? ', ' + r.path : ''}): ${String(r.body).slice(0, 1500)}`).join('\n---\n');
       log(`${human.length} human comment(s), ${failing.length} failing check(s).`);
       const cla = replies.some(x => x.bot && /\bCLA\b|contributor license agreement/i.test(x.body)); // a legal step only you can take
@@ -685,7 +698,7 @@ ipcMain.handle('push', (e, a) => pushUpdate(a));
 
 // ---- CI watch: wait for the PR's GitHub checks; green = done, flaky = re-run, real failure = fix, push and wait again ----
 const sleepJob = async (job, ms) => { for (let t = 0; t < ms; t += 4000) { chk(job); await new Promise(r => setTimeout(r, Math.min(4000, ms - t))); } chk(job); };
-const FLAKY = /Bus error|Segmentation fault|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|rate limit|Could not resolve host|Temporary failure|502 Bad Gateway|503 Service|runner has received a shutdown|lost communication with the server|No space left on device|The operation was canceled|Connection reset by peer|TLS handshake timeout|failed to download|Unable to download/i;
+const FLAKY = /Bus error|Segmentation fault|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|rate limit|Could not resolve host|Temporary failure|502 Bad Gateway|503 Service|runner has received a shutdown|lost communication with the server|No space left on device|The operation was canceled|Connection reset by peer|TLS handshake timeout|failed to download|Unable to download|ProcessTimedOutException|timed out after|exceeded the timeout/i;
 function tally(cs) {
   const k = { pass: 0, fail: 0, pend: 0, bad: [] };
   for (const c of cs) {
@@ -715,9 +728,17 @@ async function waitChecks({ repo, number, job, log, step, idx, expectSha }) {
     await sleepJob(job, 40000);
   }
 }
+// a CI log's last lines are cleanup noise and the real error is buried far above: strip colours/prefixes and keep the failure blocks (with context), else the tail
+function digest(raw, max = 6000) {
+  const L = String(raw).replace(/\x1b\[[0-9;]*m|\^\[\[[0-9;]*m/g, '').split('\n').map(l => l.replace(/^[^\t]*\t[^\t]*\t\S+Z\s?/, '')), keep = new Array(L.length).fill(false);
+  const HIT = /There (was|were) \d+ (error|failure)|^\s*\d+\) \S|FAILURES!|ERRORS!|Exception:|Error:|##\[error\]|::error::|Fatal error|AssertionError|npm ERR|✖|\bFAIL\b|not ok \d|panic:|Failed asserting|expected .* (got|but)/i;
+  L.forEach((l, i) => { if (HIT.test(l) && !/deprecat|^\s*(echo|printf)\b/i.test(l)) for (let k = Math.max(0, i - 3); k <= Math.min(L.length - 1, i + 12); k++) keep[k] = true; });
+  const out = L.filter((l, i) => keep[i] && l.trim()).join('\n');
+  return (out.length > 200 ? out : L.join('\n')).slice(0, max) || '(empty log)'; // ponytail: first blocks win; the first failure is usually the cause
+}
 async function ciLogs(repo, bad) {
   const ids = [...new Set(bad.map(c => (String(c.detailsUrl || '').match(/\/actions\/runs\/(\d+)/) || [])[1]).filter(Boolean))].slice(0, 4);
-  let text = ''; for (const id of ids) text += `\n--- failed CI run ${id} ---\n` + (await gh('run', 'view', id, '-R', repo, '--log-failed').catch(() => '')).slice(-5000);
+  let text = ''; for (const id of ids) text += `\n--- failed CI run ${id} ---\n` + digest(await gh('run', 'view', id, '-R', repo, '--log-failed').catch(() => ''));
   return { ids, text };
 }
 ipcMain.handle('ci', async (e, { repo, number, job, ck: saved, cur, idx, draft }) => {
@@ -757,7 +778,15 @@ End with the marker line "COMMIT:" followed by a one-line commit message describ
 FAILED CI OUTPUT (tail):${text || ' (not available)'}`, { cwd: dir, edit: true, onLog: log, job });
       chk(job);
       await git(dir, 'add', '-N', '.');
-      if (!(await git(dir, 'status', '--porcelain')).trim()) { step(idx, 'fail', 'no fix found'); return { green: false, reason: 'the AI found no code change that fixes the failing checks (they may be unrelated to this PR)' }; }
+      if (!(await git(dir, 'status', '--porcelain')).trim()) { // the AI judged the failure unrelated to this PR: re-run it (runner flakiness), and if it still fails accept it as unrelated instead of failing the run
+        if (ci.reruns < 2 && ids.length) {
+          ci.reruns++; ci.round--; save({ ci }); log(`The AI found nothing in this PR to fix: re-running the failed jobs (${ci.reruns}/2) in case it was a flaky runner…`);
+          for (const id of ids) await gh('run', 'rerun', id, '-R', repo, '--failed').catch(err => log('rerun: ' + err.message));
+          expectSha = null; await sleepJob(job, 30000); continue;
+        }
+        log(`Still failing after re-runs, and the AI found no link to this PR's changes: ${failing.join(', ')}. Treating as unrelated to this PR.`);
+        step(idx, 'done', 'done, unrelated check(s) failing'); return { green: true, unrelated: failing };
+      }
       const tfiles = (await git(dir, 'diff', '--name-only', 'HEAD')).split('\n').filter(f => TEST_RE.test(f)).concat(cur.tests || []);
       const tr = await verifyTests({ dir, files: [...new Set(tfiles)], job, log, step, idx });
       if (!tr.ok && !tr.env && tfiles.length) { step(idx, 'fail', 'fix did not pass local tests'); return { green: false, reason: `my fix did not pass the local tests (${tr.reason})` }; }

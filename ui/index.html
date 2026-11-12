@@ -231,6 +231,32 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stro
 .sugt{display:inline-flex;gap:4px;margin-left:6px}.sugt .chipb{padding:3px 10px;font-size:11px}
 .dsec a.spin svg{animation:spin 1s linear infinite}.dsec a svg.i{width:13px;height:13px;vertical-align:-2px}
 .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.sgrid .repo{margin:0}.sgrid .rd{-webkit-line-clamp:2;cursor:default;padding-right:0}.sgrid .rd::after{display:none}
+
+/* ---- Liquid Glass: translucent blurred surfaces over a soft colour field, bright rim light, big radii ---- */
+:root{--glass:rgba(255,255,255,.07);--glass-hi:rgba(255,255,255,.14);--rim:rgba(255,255,255,.16);--line:rgba(255,255,255,.09);--panel:rgba(22,24,32,.5);
+  --lg:blur(28px) saturate(180%);--shine:inset 0 1px 0 rgba(255,255,255,.28),inset 0 -1px 0 rgba(255,255,255,.04),0 10px 30px rgba(0,0,0,.35)}
+body{background:#05060a;position:relative;overflow:hidden}
+body::before{content:'';position:fixed;inset:-10%;z-index:-1;pointer-events:none;filter:blur(30px) saturate(140%);
+  background:radial-gradient(520px 420px at 12% 18%,rgba(90,140,255,.55),transparent 70%),radial-gradient(480px 420px at 88% 12%,rgba(190,90,255,.42),transparent 70%),
+  radial-gradient(560px 460px at 70% 92%,rgba(40,210,170,.34),transparent 70%),radial-gradient(420px 380px at 8% 88%,rgba(255,120,150,.30),transparent 70%)}
+#hdr{background:var(--glass);backdrop-filter:var(--lg);-webkit-backdrop-filter:var(--lg);border-bottom:1px solid var(--rim);box-shadow:inset 0 -1px 0 rgba(255,255,255,.04)}
+#nav,#main,.forge{background:linear-gradient(160deg,rgba(255,255,255,.11),rgba(255,255,255,.035) 45%,rgba(255,255,255,.06));backdrop-filter:var(--lg);-webkit-backdrop-filter:var(--lg);
+  border:1px solid var(--line);border-top-color:var(--rim);border-left-color:rgba(255,255,255,.12);border-radius:26px;box-shadow:var(--shine)}
+#main{background:linear-gradient(160deg,rgba(255,255,255,.09),rgba(255,255,255,.03) 50%,rgba(255,255,255,.05))}
+.card,.bar,.pill,#me,input,textarea,pre{backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%)}
+.card{background:linear-gradient(160deg,rgba(255,255,255,.12),rgba(255,255,255,.04));border:1px solid var(--line);border-top-color:var(--rim);border-radius:22px;box-shadow:var(--shine)}
+.bar,.pill,#me{background:var(--glass);border-color:var(--line);border-top-color:var(--rim);box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
+input,textarea,pre{background:rgba(0,0,0,.25);border-color:var(--line);border-radius:14px;box-shadow:inset 0 1px 3px rgba(0,0,0,.35)}
+button{background:linear-gradient(180deg,rgba(170,214,255,.95),rgba(120,175,255,.85));box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 4px 14px rgba(90,150,255,.35)}
+button.g{background:var(--glass-hi);color:var(--ink);border:1px solid var(--line);border-top-color:var(--rim);box-shadow:inset 0 1px 0 rgba(255,255,255,.25);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+button:active:not(:disabled){transform:scale(.97)}
+.item{border-radius:14px}.item:hover{background:rgba(255,255,255,.08)}
+.item.on{background:rgba(255,255,255,.16);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 2px 10px rgba(0,0,0,.2)}.item.on::before{display:none}
+.rav b{border-color:#1b1e28}
+.st{border-radius:14px}.st.run{background:rgba(255,255,255,.1);box-shadow:inset 0 1px 0 rgba(255,255,255,.2)}
+.steps{border-right-color:var(--line)}.segs i{background:rgba(255,255,255,.12)}
+#nav .scroll,#main,.pane{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.2) transparent}
+#npanel{background:rgba(30,34,46,.55);backdrop-filter:var(--lg);-webkit-backdrop-filter:var(--lg);border-radius:24px;border-color:var(--rim);box-shadow:var(--shine)}
 </style>
 <div id="hdr"><span class="logo" data-ic="git-branch"></span><b>gh-contrib</b><span id="crumb">› pick a repo</span><span id="bellw"><span id="bell" title="Notifications"></span><div id="npanel"><div class="nh">Notifications<a id="nread">Mark all read</a><a id="nclr">Clear</a></div><div class="nl" id="nlist"></div></div></span><span id="me" title="Account"><span class="ph" data-ic="user"></span><span>Sign in</span></span></div>
 <div id="body">
@@ -637,7 +663,7 @@ async function watchCi(j, force) {
   if ((S.auto === false && !force) || !number) { j.status = 'done'; return; } // manual mode: you handle CI yourself
   j.status = 'ci'; renderPane(j); paint(j); renderBoard(); saveJobs();
   const r = await gc.ci({ repo: j.repo, number, job: j.id, ck: j.ck, cur: { dir: j.cur.dir, branch: j.cur.branch, tests: j.cur.tests }, idx: STEPSOF(j).length - 1, draft: !!j.cur.draft });
-  if (r.green) { j.status = 'done'; j.ciGreen = true; if (r.cla) j.ck = { ...(j.ck || {}), cla: true }; } else { j.status = 'failed'; j.err = 'CI is not green: ' + r.reason; }
+  if (r.green) { j.status = 'done'; j.ciGreen = !r.unrelated; j.ciNote = r.unrelated ? 'Not all CI checks are green: ' + r.unrelated.join(', ') + ' failed in a way that does not look related to this PR (re-run twice, no link to the changes). Check it on GitHub.' : ''; if (r.cla) j.ck = { ...(j.ck || {}), cla: true }; } else { j.status = 'failed'; j.err = 'CI is not green: ' + r.reason; }
 }
 function startCi(j, force) { // for the manual paths (you opened the PR / pushed the update yourself)
   watchCi(j, force).catch(e => { j.err = msg(e); j.status = /Stopped by you/.test(j.err) ? 'paused' : 'failed'; if (j.status === 'paused') j.err = 'You stopped this run.'; })
@@ -756,7 +782,7 @@ function renderPane(j) {
     return p.querySelector('.restart').onclick = async () => { if (await ask({ title: 'Start over?', text: 'Finished steps and the edits so far are discarded.', ok: 'Start over', danger: 1 })) restartJob(j); };
   }
   if (j.status === 'done') {
-    p.innerHTML = `<h3>${j.kind === 'feedback' ? 'Update pushed' : 'PR opened'} <span class="d">${esc(j.repo)}</span></h3><div class="card">${j.prUrl ? `<a href="#" class="pu">${esc(j.prUrl)}</a>` : esc(j.doneNote || 'Done.')}${j.ciGreen ? `<p style="margin:8px 0 0"><span class="pill ok">${ic('check')}all CI checks passed</span></p>` : ''}${j.cur?.draft ? '<p class="w" style="margin:8px 0 0">Opened as a <b>draft</b>: the tests could not run on this machine, so the project\'s CI will run them. Mark it ready for review on GitHub once CI is green.</p>' : ''}<p class="d" style="margin:8px 0 0">Track CI and replies in this repo's <b>Done</b> tab.</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
+    p.innerHTML = `<h3>${j.kind === 'feedback' ? 'Update pushed' : 'PR opened'} <span class="d">${esc(j.repo)}</span></h3><div class="card">${j.prUrl ? `<a href="#" class="pu">${esc(j.prUrl)}</a>` : esc(j.doneNote || 'Done.')}${j.ciNote ? `<p class="w" style="margin:8px 0 0">${esc(j.ciNote)}</p>` : ''}${j.ciGreen ? `<p style="margin:8px 0 0"><span class="pill ok">${ic('check')}all CI checks passed</span></p>` : ''}${j.cur?.draft ? '<p class="w" style="margin:8px 0 0">Opened as a <b>draft</b>: the tests could not run on this machine, so the project\'s CI will run them. Mark it ready for review on GitHub once CI is green.</p>' : ''}<p class="d" style="margin:8px 0 0">Track CI and replies in this repo's <b>Done</b> tab.</p></div><details><summary>Logs</summary><pre>${esc(j.log)}</pre></details>`;
     const a = p.querySelector('.pu'); if (a) a.onclick = (e) => { e.preventDefault(); go(j.prUrl); };
     return;
   }
