@@ -51,3 +51,6 @@ assert(g.promises("I'll regenerate it"));
 assert.strictEqual(g.promises('I removed the skip guards and added the fixture.'), null);
 assert.strictEqual(g.dropPromises("Fixed the test. I'll add docs later.\n\n- Renamed `a.rs`."), 'Fixed the test.\n\n- Renamed `a.rs`.');
 console.log('ok promises');
+assert(g.guideOf([{ bot: true, body: '<!-- x -->Symfony has a [contribution guide](u).\n- Always add tests' }]).startsWith('Symfony'));
+assert.strictEqual(g.guideOf([{ bot: false, body: 'see the contribution guide\n- x' }, { bot: true, body: 'LGTM' }]), null);
+console.log('ok guide');

@@ -31,4 +31,6 @@ const replyThreads = (fresh) => { const h = fresh.filter(r => !r.bot); return h.
 const promises = (t) => (String(t).match(/\b(I['’]?ll|I will|I am going to|will be added|gets added|once I (run|generate|add)|I['’]m (posting|adding|regenerating)|separate comment)\b/i) || [])[0] || null;
 // ponytail: sentence split on .!? — a promise sentence with a dotted filename may lose a fragment; fine for a reply
 const dropPromises = (t) => String(t || '').split('\n').map(l => l.split(/(?<=[.!?])\s+/).filter(x => !promises(x)).join(' ')).join('\n').replace(/\n{3,}/g, '\n\n').trim();
-module.exports = { promises, dropPromises, replyThreads, pickTitle, isBot, rejectKind, similar, matchIdea, lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };
+// a bot's welcome checklist on your PR ("read the contribution guide... always add tests, keep BC...") holds repo rules you only see after opening one
+const guideOf = (replies) => { const g = replies.find(x => x.bot && x.body.length < 3000 && /contribut\w*\s+guide|CONTRIBUTING/i.test(x.body) && /^\s*[-*] /m.test(x.body)); return g ? g.body.replace(/<!--[\s\S]*?-->/g, '').trim() : null; };
+module.exports = { promises, dropPromises, guideOf, replyThreads, pickTitle, isBot, rejectKind, similar, matchIdea, lastJson, prBlocked, findTraceT, aboutAi, findTrace, addedLines, hasPolicy, rateOk };

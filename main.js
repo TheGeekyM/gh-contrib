@@ -63,6 +63,8 @@ function claude(prompt, { cwd = os.tmpdir(), edit = false, read = false, onLog =
   });
 }
 // shared by triage, ideas and fixing: understand the project before judging or touching it
+// DOCS_RULE plus any checklist the repo's bot gave on an earlier PR (saved by collectReplies)
+const rulesFor = (repo) => { const g = readJson('guides.json', {})[repo]; return DOCS_RULE + (g ? `This repo's bot posted these contribution rules on an earlier PR. Follow every one that applies (tests, backward compatibility, target branch, changelog...):\n---\n${g}\n---\n\n` : ''); };
 const DOCS_RULE = `FIRST, understand the project properly. Use your tools to find and carefully read: every README*, CONTRIBUTING*, ARCHITECTURE*, docs/doc/documentation folders (all .md/.rst), UPGRADE/CHANGELOG notes, and the test setup. If the README links to official documentation (for a framework like Laravel, its docs site), WebFetch the pages relevant to the area you are about to touch. Learn the project's purpose, conventions, public API and what maintainers accept. Only then continue. Say briefly what you learned.\n\n`;
 
 
@@ -211,7 +213,7 @@ ipcMain.handle('ideas', async (e, { repo, job, login, rejected = [] }) => {
     } else { log('Updating existing read-only clone…'); await git(dir, 'pull', '--ff-only').catch(() => {}); }
     step(1, 'done', 'ready');
     step(i = 2, 'run', 'docs + code'); log('Reading README, docs and code (this is the long step)…');
-    const out = await claude(DOCS_RULE + `You are a senior engineer and product thinker advising a contributor to ${repo}. After you understand the project deeply, explore the code and find
+    const out = await claude(rulesFor(repo) + `You are a senior engineer and product thinker advising a contributor to ${repo}. After you understand the project deeply, explore the code and find
 contributions that would REALLY help its users and maintainers. Be creative and ambitious, think out of the box, not a list of typo fixes and tiny refactors.
 Propose 6 ideas with a deliberate MIX: at least 2 ambitious new features or capabilities, 1 developer-experience or tooling improvement, 1 performance or reliability idea,
 and others as you see fit (architecture, testing infrastructure, integrations, better defaults, observability). Risk may be low, medium or high; do NOT bias toward safe ones.
@@ -299,7 +301,7 @@ ipcMain.handle('prepare', async (e, { repo, number, idea, user, force, job, ck: 
     // step 4: validate before spending effort: read the docs, the thread AND the code
     if (!ck.verdict) {
       step(i = 4, 'run', 'reading the code…'); log('Validating: is it a real, current, fixable issue? (read-only pass over the code)');
-      const raw = await claude(DOCS_RULE + `You triage ${what} for ${repo} for a first-time contributor. The repo is checked out in the current directory (default branch).
+      const raw = await claude(rulesFor(repo) + `You triage ${what} for ${repo} for a first-time contributor. The repo is checked out in the current directory (default branch).
 Read the issue and thread below, then INVESTIGATE THE CODE with your tools. Decide:
 - real: does the code actually have this bug / lack this feature today? (it may already be fixed, be a misuse, a duplicate, or by design)
 - fixable: can it be fixed with a small, safe change that a newcomer can finish? Or is it a big design decision, needs maintainer sign-off, or touches security (never fix security issues publicly)?
@@ -333,7 +335,7 @@ TITLE: ${issue.title}\nSTATE: ${issue.state}\nLABELS: ${issue.labels.map(l => l.
       step(i = 5, 'run', ck.fixStarted ? 'continuing…' : 'AI is editing files…'); log(ck.fixStarted ? 'Continuing the change from where it stopped…' : 'AI is editing files (a few minutes)…');
       const resumeNote = ck.fixStarted ? '\n\nNOTE: an earlier attempt was interrupted. Part of the change may already be in the working tree. Read the relevant files, check what is already done, and COMPLETE the work without duplicating edits.' : '';
       save({ fixStarted: true });
-      const out = await claude(DOCS_RULE + `${idea ? 'Implement this contribution idea' : 'Fix this GitHub issue'} in the repository in the current directory. Make the smallest correct change, follow the repo's existing style
+      const out = await claude(rulesFor(repo) + `${idea ? 'Implement this contribution idea' : 'Fix this GitHub issue'} in the repository in the current directory. Make the smallest correct change, follow the repo's existing style
 and any CONTRIBUTING guidance. Edit files only; do not run git. Do not add comments or text mentioning AI tools. A separate step writes the unit tests, so focus on the source change.
 ${task !== issue ? 'IMPORTANT: this is deliberately a SMALL first slice of a bigger idea. Implement ONLY the slice below, nothing from the larger proposal.\n' : ''}A prior triage found: ${v.reason}\nPlan: ${task !== issue ? v.slice.plan : v.plan}\n\n${idea ? 'Idea' : 'Issue #' + number}: ${task.title}\n\n${task.body}${resumeNote}`, { cwd: dir, edit: true, onLog: log, job });
       log(out); save({ fixed: true });
@@ -540,6 +542,7 @@ async function collectReplies(repo, number, login) {
   ].filter(x => x.who && (x.body || '').trim() || x.kind?.startsWith('review '));
   const mine = all.filter(x => x.who === login).map(x => +new Date(x.at)).sort((a, b) => b - a)[0] || 0;
   const others = all.filter(x => x.who !== login).map(x => ({ ...x, bot: isBot(x.who) })).sort((a, b) => new Date(b.at) - new Date(a.at));
+  const guide = G.guideOf(others); if (guide) { const g = readJson('guides.json', {}); if (g[repo] !== guide) { g[repo] = guide; writeJson('guides.json', g); } }
   const fresh = others.filter(x => +new Date(x.at) > mine);
   return { replies: others, fresh, needs: fresh.some(x => !x.bot) };
 }
@@ -600,7 +603,7 @@ ipcMain.handle('feedback', async (e, { repo, number, user, job, ck: saved, auto 
 
     if (!ck.applied) {
       step(i = 2, 'run', 'AI is addressing it…'); log('Applying the feedback…');
-      const out = await claude(DOCS_RULE + `This is an open pull request ("${fb.title}") on ${repo}; its branch is checked out in the current directory. Maintainers and/or CI gave feedback. Address it:
+      const out = await claude(rulesFor(repo) + `This is an open pull request ("${fb.title}") on ${repo}; its branch is checked out in the current directory. Maintainers and/or CI gave feedback. Address it:
 - Make the requested changes with minimal, focused edits that follow the repo's style. Update or add tests when behaviour changes.
 - If a reviewer says a file or fixture is missing, CREATE it in this working tree (write the real content yourself, e.g. a fixture derived from the code); do not skip, soften or guard the test around it. If you truly cannot produce it, say so plainly in the reply instead of promising it.
 - The REPLY may only describe changes that exist in this working tree right now. Never promise future work ("I'll add", "will be added", "once I run").
